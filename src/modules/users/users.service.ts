@@ -182,6 +182,17 @@ export class UsersService {
       throw new UnauthorizedException();
     }
 
+    /*
+    Conta só-Google: não existe "senha atual" para conferir, e
+    `bcrypt.compare(x, null)` lança. 409 explícito apontando para "definir
+    senha" — não pode depender de o frontend esconder o botão de troca.
+    */
+    if (!user.password) {
+      throw new ConflictException(
+        'Esta conta não tem senha. Use "Definir senha" para criar uma.',
+      );
+    }
+
     const matches = await bcrypt.compare(currentPassword, user.password);
 
     if (!matches) {
@@ -360,6 +371,21 @@ export class UsersService {
 
     if (!user) {
       throw new UnauthorizedException();
+    }
+
+    /*
+    Conta só-Google: não há senha para confirmar a exclusão, e
+    `bcrypt.compare(x, null)` lançaria (viraria 500). O caminho definitivo
+    — re-autenticar no Google e conferir o `sub` contra um LinkedAccount
+    deste user — está pendente de decisão humana (spec, "Questões em
+    aberto"; plano A8). Por ora recusa com 400 em vez de estourar 500;
+    não conseguir excluir a conta é problema de LGPD, então esta é uma
+    parada temporária, não o destino.
+    */
+    if (!user.password) {
+      throw new BadRequestException(
+        'Não foi possível confirmar sua identidade para excluir a conta.',
+      );
     }
 
     const matches = await bcrypt.compare(password, user.password);

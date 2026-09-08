@@ -12,7 +12,12 @@ model User {
   id                            String                     @id @default(uuid())
   name                          String
   email                         String                     @unique
-  password                      String
+  // Opcional desde o login com Google: uma conta criada por provedor social
+  // nasce sem senha. `AuthService.login` trata `password == null` como
+  // credencial inválida (mesmo 401 de senha errada) antes de chamar o bcrypt,
+  // que quebra com null. Quem entrou só por Google define uma senha via
+  // `POST /users/me/set-password` ou pelo fluxo de "esqueci minha senha".
+  password                      String?
   createdAt                     DateTime                   @default(now())
   updatedAt                     DateTime                   @updatedAt
   refreshSessions               RefreshSession[]
@@ -39,6 +44,7 @@ model User {
   bibleMarks                    BibleMark[]
   bibleCollections              BibleCollection[]
   notificationProfile           UserNotificationProfile?
+  linkedAccounts                LinkedAccount[]
 
   // Perfil de resposta do VoxAI (chave de VOX_PROFILE_KEYS, ex.: "STUDY").
   // null = a pessoa nunca escolheu → comportamento = DEFAULT ("Padrão").
@@ -78,6 +84,27 @@ model RefreshSession {
   location    String?
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+}
+
+// Vínculo entre um User e uma identidade de um provedor social (Google hoje;
+// o formato comporta Apple depois SEM mexer em User). Uma linha por
+// (provider, conta no provider). `providerAccountId` é o `sub` do id_token —
+// id opaco e estável do provedor, NUNCA o e-mail (o e-mail do Google pode
+// mudar; o `sub` não). `emailSnapshot` é o e-mail que o provedor afirmou
+// (com email_verified=true) no momento da ligação: registro para auditar
+// uma contestação futura, não fonte de login. A linha só é criada depois
+// de o backend confirmar email_verified=true.
+model LinkedAccount {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String // "google"
+  providerAccountId String
+  emailSnapshot     String
+  linkedAt          DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
   @@index([userId])
 }
 

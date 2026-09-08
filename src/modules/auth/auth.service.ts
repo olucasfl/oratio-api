@@ -66,6 +66,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    /*
+    Conta só-Google (criada por login social, sem senha). Responde o MESMO
+    401 genérico de "senha errada" — não revela que a conta usa Google, senão
+    vira enumeração de tipo de conta. E `bcrypt.compare(x, null)` lançaria,
+    então precisa barrar aqui, antes. Quem quer entrar por senha define uma
+    via `POST /users/me/set-password` ou pelo "esqueci minha senha".
+    */
+    if (!user.password) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
     const passwordMatches = await bcrypt.compare(password, user.password);
 
     if (!passwordMatches) {
