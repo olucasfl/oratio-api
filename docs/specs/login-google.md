@@ -1,7 +1,7 @@
 # Spec: login-google — "Entrar com Google"
 
-> Status: aprovada (2026-09-08)
-> Plano: `docs/tasks/login-google-plan.md` · Checklist: `docs/tasks/login-google-todo.md` *(a criar)*
+> Status: em andamento (Fase A no backend — 2026-09-08)
+> Plano: `docs/tasks/login-google-plan.md` · Checklist: `docs/tasks/login-google-todo.md`
 > Frontend pareado: `oratio/docs/specs/login-google.md` (ponteiro)
 
 ## Objetivo
@@ -246,57 +246,57 @@ registrado em `docs/specs/INDEX.md`.
 
 ### Backend — `POST /auth/google`
 
-- [ ] **Dado** que não existe `User` com o e-mail do token, **quando** `POST /auth/google` com
+- [x] **Dado** que não existe `User` com o e-mail do token, **quando** `POST /auth/google` com
   `credential` válido e `email_verified: true`, **então** 200 com `{ access_token, refresh_token }`,
   um `User` novo existe (`password` nulo, `emailVerified: true`, `name` == `name` do Google) e uma
   linha `LinkedAccount` (`provider: "google"`, `providerAccountId` == `sub` do token).
-- [ ] **Dado** um `LinkedAccount` google já existente para o `sub` do token, **quando**
+- [x] **Dado** um `LinkedAccount` google já existente para o `sub` do token, **quando**
   `POST /auth/google` com `credential` válido, **então** 200 com par de tokens do usuário dono e
   **nenhuma** linha `User` ou `LinkedAccount` nova é criada.
-- [ ] **Dado** um `User` e-mail+senha já cadastrado com o mesmo e-mail do token e **sem**
+- [x] **Dado** um `User` e-mail+senha já cadastrado com o mesmo e-mail do token e **sem**
   `LinkedAccount`, **quando** `POST /auth/google` com `credential` válido e `email_verified: true`,
   **então** 200 com par de tokens **desse** usuário, uma linha `LinkedAccount` nova ligada a ele,
   e `User.password` + `User.name` **inalterados**.
-- [ ] **Dado** um `User` e-mail+senha com `emailVerified: false` e sem `LinkedAccount`, **quando**
+- [x] **Dado** um `User` e-mail+senha com `emailVerified: false` e sem `LinkedAccount`, **quando**
   `POST /auth/google` auto-liga esse user, **então** `User.emailVerified` passa a `true` (o teste
   asserta o `data` do `user.update`); `password`/`name` continuam intactos.
-- [ ] **Dado** que dois `POST /auth/google` concorrentes chegam para o mesmo e-mail inédito (o
+- [x] **Dado** que dois `POST /auth/google` concorrentes chegam para o mesmo e-mail inédito (o
   2º encontra o `@@unique` já preenchido — `P2002`), **quando** o 2º é processado, **então**
   responde 200 com o par de tokens do `User` recém-criado, não 500.
-- [ ] **Dado** um `credential` cujo payload traz `email_verified: false`, **quando**
+- [x] **Dado** um `credential` cujo payload traz `email_verified: false`, **quando**
   `POST /auth/google`, **então** 401 com `{ message: "Seu e-mail no Google não está verificado. ..." }`
   e **nenhum** `User`/`LinkedAccount` é criado ou alterado.
-- [ ] **Dado** um `credential` com assinatura inválida (`verifyIdToken` lança), **quando**
+- [x] **Dado** um `credential` com assinatura inválida (`verifyIdToken` lança), **quando**
   `POST /auth/google`, **então** 401 com `{ message: "Não foi possível validar seu login com o Google. Tente de novo." }`.
-- [ ] **Dado** um `credential` expirado (`exp` no passado), **quando** `POST /auth/google`,
+- [x] **Dado** um `credential` expirado (`exp` no passado), **quando** `POST /auth/google`,
   **então** 401.
-- [ ] **Dado** um `credential` válido mas com `aud` de outro client ID, **quando**
+- [x] **Dado** um `credential` válido mas com `aud` de outro client ID, **quando**
   `POST /auth/google`, **então** 401.
-- [ ] **Dado** um corpo `{}` (sem `credential`), **quando** `POST /auth/google`, **então** 400.
+- [x] **Dado** um corpo `{}` (sem `credential`), **quando** `POST /auth/google`, **então** 400.
 - [ ] **Dado** 6 requisições em 60s do mesmo IP, **quando** a 6ª chega em `POST /auth/google`,
   **então** 429.
 
 ### Backend — senha / recuperação
 
-- [ ] **Dado** um `User` com `password: null`, **quando** `POST /auth/login` com o e-mail dele e
+- [x] **Dado** um `User` com `password: null`, **quando** `POST /auth/login` com o e-mail dele e
   qualquer senha, **então** 401 com `{ message: "Invalid credentials" }` (idêntico ao de senha
   errada — sem revelar que é conta Google).
-- [ ] **Dado** um `User` com `password: null`, **quando** `POST /auth/forgot-password` com o
+- [x] **Dado** um `User` com `password: null`, **quando** `POST /auth/forgot-password` com o
   e-mail dele e depois `POST /auth/reset-password` com o token gerado e uma senha nova, **então**
   `POST /auth/login` com essa senha passa a devolver 200, e todas as `RefreshSession` anteriores
   desse usuário foram apagadas.
-- [ ] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
+- [x] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
   `POST /users/me/set-password` com `password`/`confirmPassword` iguais e válidos, **então** 200
   `{ message: "Senha definida." }`, `User.password` passa a ter um hash bcrypt, e **nenhuma**
   `RefreshSession` do usuário é apagada (o teste asserta que o mock de `refreshSession.deleteMany`
   não foi chamado).
-- [ ] **Dado** um usuário autenticado cuja conta **já tem** senha (`password` não-nulo), **quando**
+- [x] **Dado** um usuário autenticado cuja conta **já tem** senha (`password` não-nulo), **quando**
   `POST /users/me/set-password`, **então** 409 com a mensagem que aponta para "Trocar senha", e
   `User.password` não muda. *(Teste obrigatório — é o controle de segurança da rota.)*
-- [ ] **Dado** nenhuma credencial (`Authorization` ausente), **quando**
+- [x] **Dado** nenhuma credencial (`Authorization` ausente), **quando**
   `POST /users/me/set-password`, **então** 401.
-- [ ] **Dado** `password` != `confirmPassword`, **quando** `POST /users/me/set-password`, **então** 400.
-- [ ] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
+- [x] **Dado** `password` != `confirmPassword`, **quando** `POST /users/me/set-password`, **então** 400.
+- [x] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
   `POST /users/me/change-password`, **então** 409 `{ message: "Esta conta não tem senha. ..." }`
   e o `bcrypt.compare` **não** é chamado com `null` (o teste asserta o mock).
 - [ ] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**

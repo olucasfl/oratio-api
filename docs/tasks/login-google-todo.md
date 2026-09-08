@@ -26,16 +26,16 @@ para gerar `prisma/db-scripts/2026-09-08-login-google.sql` (aplicação + rollba
 com a nota de que o rollback do `NOT NULL` é condicional).
 
 **Critérios de aceite:**
-- [ ] `model LinkedAccount` conforme o plano: `@@unique([provider, providerAccountId])`,
+- [x] `model LinkedAccount` conforme o plano: `@@unique([provider, providerAccountId])`,
       `@@index([userId])`, `onDelete: Cascade` a partir de `User`, campo `linkedAt`, comentário
       explicando a restrição não óbvia (`ARCHITECTURE.md` §10)
-- [ ] `User.password` agora é `String?`; `User.linkedAccounts LinkedAccount[]` adicionado
-- [ ] `prisma/db-scripts/2026-09-08-login-google.sql` existe com apply + rollback comentado
-- [ ] Nenhum `db push` rodado pelo agente
+- [x] `User.password` agora é `String?`; `User.linkedAccounts LinkedAccount[]` adicionado
+- [x] `prisma/db-scripts/2026-09-08-login-google.sql` existe com apply + rollback comentado
+- [x] Nenhum `db push` rodado pelo agente
 
 **Verificação:**
-- [ ] `npx prisma generate` sem erro; `import { LinkedAccount } from '@prisma/client'` compila
-- [ ] `npm run build` limpo
+- [x] `npx prisma generate` sem erro; `import { LinkedAccount } from '@prisma/client'` compila
+- [x] `npm run build` limpo
 
 **Dependências:** nenhuma · **Arquivos:** `prisma/schema.prisma`, `prisma/db-scripts/*.sql`
 **Escopo:** S
@@ -54,22 +54,22 @@ verificação: instancia `OAuth2Client(process.env.GOOGLE_CLIENT_ID)` (ausente �
 a mensagem da spec; `email_verified` falso → mensagem própria da spec.
 
 **Critérios de aceite (BDD da spec):**
-- [ ] `credential` com assinatura inválida (`verifyIdToken` lança) → 401
+- [x] `credential` com assinatura inválida (`verifyIdToken` lança) → 401
       `{ message: "Não foi possível validar seu login com o Google. Tente de novo." }`
-- [ ] `credential` expirado (`exp` no passado) → 401
-- [ ] `credential` com `aud` de outro client ID → 401
-- [ ] payload com `email_verified: false` (ou ausente) → 401
+- [x] `credential` expirado (`exp` no passado) → 401
+- [x] `credential` com `aud` de outro client ID → 401
+- [x] payload com `email_verified: false` (ou ausente) → 401
       `{ message: "Seu e-mail no Google não está verificado. ..." }`, **nada** criado/alterado
-- [ ] corpo `{}` (sem `credential`) → 400
-- [ ] `GOOGLE_CLIENT_ID` ausente do ambiente → 503
+- [x] corpo `{}` (sem `credential`) → 400
+- [x] `GOOGLE_CLIENT_ID` ausente do ambiente → 503
       `{ message: "Login com Google indisponível no momento." }`
-- [ ] header `X-App` ausente → mesma resposta que `/auth/login` sem `X-App`
+- [x] **X-App não é conferido** (nem o `/auth/login` confere hoje) — spec corrigida; nada a implementar
 
 **Verificação:**
-- [ ] `npm test -- auth` verde; specs novos com `jest.mock('google-auth-library')`,
+- [x] `npm test -- auth` verde; specs novos com `jest.mock('google-auth-library')`,
       `verifyIdToken` mockado por caso (payload sintético ou `throw`)
-- [ ] `npm run build` limpo
-- [ ] `curl` (sem `db push`): `-d '{}'` → 400; `-d '{"credential":"abc"}'` → 401
+- [x] `npm run build` limpo
+- [ ] `curl` (sem `db push`): `-d '{}'` → 400; `-d '{"credential":"abc"}'` → 401 *(checkpoint)*
 
 **Dependências:** A1 · **Arquivos:** `src/modules/auth/dto/google-login.dto.ts`,
 `src/modules/auth/auth.controller.ts`, `src/modules/auth/auth.service.ts`,
@@ -91,25 +91,25 @@ a mensagem da spec; `email_verified` falso → mensagem própria da spec.
 Colisão de e-mail nunca deve vazar erro de constraint — o passo 2 já cobre.
 
 **Critérios de aceite (BDD da spec):**
-- [ ] sem `User` com o e-mail → 200 `{ access_token, refresh_token }`; `User` novo
+- [x] sem `User` com o e-mail → 200 `{ access_token, refresh_token }`; `User` novo
       (`password` nulo, `emailVerified: true`, `name` == Google) + `LinkedAccount`
       (`provider: "google"`, `providerAccountId` == `sub`)
-- [ ] `LinkedAccount` já existe para o `sub` → 200 com tokens do dono; **nenhuma** linha nova
-- [ ] `User` e-mail+senha existe, sem `LinkedAccount` → 200 com tokens **desse** user;
+- [x] `LinkedAccount` já existe para o `sub` → 200 com tokens do dono; **nenhuma** linha nova
+- [x] `User` e-mail+senha existe, sem `LinkedAccount` → 200 com tokens **desse** user;
       `LinkedAccount` nova ligada a ele; `password` e `name` **inalterados**
-- [ ] resposta é **200** (não 201)
-- [ ] **A9** — auto-ligação num `User` com `emailVerified: false` → grava `emailVerified: true`
+- [x] resposta é **200** (não 201)
+- [x] **A9** — auto-ligação num `User` com `emailVerified: false` → grava `emailVerified: true`
       (teste asserta o `data` do `user.update`); `password`/`name` intactos
-- [ ] **A10** — `user.create` + `linkedAccount.create` do caminho novo dentro de
+- [x] **A10** — `user.create` + `linkedAccount.create` do caminho novo dentro de
       `prisma.$transaction` (callback); `PrismaClientKnownRequestError` `P2002` (em `user.create`
       **e** `linkedAccount.create`) é capturado e o fluxo **re-resolve** (LinkedAccount por `sub`
       → senão User por e-mail → auto-liga) → 200, não 500
 
 **Verificação:**
-- [ ] `npm test -- auth` verde — asserta args de `user.create` / `linkedAccount.create`; que
+- [x] `npm test -- auth` verde — asserta args de `user.create` / `linkedAccount.create`; que
       `user.update` só é chamado no caminho `emailVerified: false`; e o caminho `P2002` (mock
       de `create` lançando `{ code: 'P2002' }` na 1ª, sucesso na re-resolução)
-- [ ] `npm run build` limpo
+- [x] `npm run build` limpo
 
 **Dependências:** A2 · **Arquivos:** `auth.service.ts`, `auth.service.spec.ts` · **Escopo:** M
 **Absorve:** A9 (`emailVerified` na auto-ligação) e A10 (corrida `P2002`) — do pedido do humano.
@@ -124,11 +124,11 @@ lançar `UnauthorizedException('Invalid credentials')` — **idêntico** ao "usu
 `bcrypt.compare(x, null)` quebra).
 
 **Critérios de aceite (BDD da spec):**
-- [ ] `User` com `password: null` + `POST /auth/login` com qualquer senha → 401
+- [x] `User` com `password: null` + `POST /auth/login` com qualquer senha → 401
       `{ message: "Invalid credentials" }`
-- [ ] `bcrypt.compare` não é chamado com `null` (teste asserta o mock de `bcrypt`)
+- [x] `bcrypt.compare` não é chamado com `null` (teste asserta o mock de `bcrypt`)
 
-**Verificação:** [ ] `npm test -- auth` verde · `npm run build` limpo
+**Verificação:** [x] `npm test -- auth` verde · `npm run build` limpo
 **Dependências:** A1 · **Arquivos:** `auth.service.ts`, `auth.service.spec.ts` · **Escopo:** XS
 
 ---
@@ -146,16 +146,16 @@ lançar `UnauthorizedException('Invalid credentials')` — **idêntico** ao "usu
 - **NÃO** chamar `refreshSession.deleteMany` — comentário explicando a diferença p/ `changePassword`
 
 **Critérios de aceite (BDD da spec):**
-- [ ] conta com `password: null` + corpo válido e senhas iguais → 200 `{ message: "Senha definida." }`;
+- [x] conta com `password: null` + corpo válido e senhas iguais → 200 `{ message: "Senha definida." }`;
       `user.update` com hash bcrypt; `refreshSession.deleteMany` **não** chamado (teste asserta)
-- [ ] conta que **já tem** senha → 409, mensagem aponta p/ "Trocar senha", `password` não muda
+- [x] conta que **já tem** senha → 409, mensagem aponta p/ "Trocar senha", `password` não muda
       *(teste obrigatório — controle de segurança da rota)*
-- [ ] sem `Authorization` → 401
-- [ ] `password != confirmPassword` → 400
+- [x] sem `Authorization` → 401
+- [x] `password != confirmPassword` → 400
 
 **Verificação:**
-- [ ] `npm test -- users` verde · `npm run build` limpo
-- [ ] `curl` (após `db push`): autenticado numa conta só-Google → 200; repetir → 409
+- [x] `npm test -- users` verde · `npm run build` limpo
+- [ ] `curl` (após `db push`): autenticado numa conta só-Google → 200; repetir → 409 *(checkpoint)*
 
 **Dependências:** A1 · **Arquivos:** `src/modules/users/dto/set-password.dto.ts`,
 `src/modules/users/users.controller.ts`, `src/modules/users/users.service.ts`,
@@ -171,11 +171,11 @@ antiga — deve funcionar). Adicionar teste de regressão. Se algum caminho queb
 corrigir com escopo mínimo.
 
 **Critérios de aceite (BDD da spec):**
-- [ ] `User` com `password: null` → `forgot-password` grava `passwordResetToken`; `reset-password`
+- [x] `User` com `password: null` → `forgot-password` grava `passwordResetToken`; `reset-password`
       com esse token + senha nova → `login` com a senha nova depois devolve 200; todas as
       `RefreshSession` do user foram apagadas (comportamento existente do `resetPassword`)
 
-**Verificação:** [ ] `npm test -- auth` verde
+**Verificação:** [x] `npm test -- auth` verde
 **Dependências:** A1 · **Arquivos:** `auth.service.spec.ts` (+ `auth.service.ts` só se quebrar)
 **Escopo:** XS
 
@@ -197,13 +197,14 @@ fazem `bcrypt.compare(x, user.password)` — com `null` lançam → 500 numa con
   adequada → `BadRequestException` (não 500).
 
 **Critérios de aceite (BDD da spec):**
-- [ ] `change-password` autenticado numa conta `password: null` → 409, mensagem aponta p/
+- [x] `change-password` autenticado numa conta `password: null` → 409, mensagem aponta p/
       "Definir senha"; `bcrypt.compare` **não** chamado com `null` (teste asserta o mock)
-- [ ] `delete` autenticado numa conta `password: null` sem a prova exigida → 400 (não 500)
+- [x] `delete` autenticado numa conta `password: null` sem a prova exigida → 400 (não 500)
 - [ ] `delete` autenticado numa conta `password: null` com a prova válida → 200, conta apagada
-- [ ] `delete`/`change-password` numa conta **com** senha → comportamento atual inalterado
+      *(BLOQUEADO — aguardando decisão humana sobre o caminho: só JWT × re-auth Google)*
+- [x] `delete`/`change-password` numa conta **com** senha → comportamento atual inalterado
 
-**Verificação:** [ ] `npm test -- users` verde · `npm run build` limpo
+**Verificação:** [x] `npm test -- users` verde · `npm run build` limpo (parte `deleteAccount` só até o 400)
 **Dependências:** A1, A2 (helper de verificação, se a proposta for aceita) ·
 **Arquivos:** `users.service.ts`, `users.controller.ts` (se DTO mudar),
 `dto/delete-account.dto.ts`, `users.service.spec.ts` · **Escopo:** S
@@ -213,20 +214,20 @@ fazem `bcrypt.compare(x, user.password)` — com `null` lançam → 500 numa con
 ### A7 — Docs + fechamento da Fase A
 
 **Critérios de aceite:**
-- [ ] `docs/ARCHITECTURE.md` §5 descreve: `POST /auth/google` (verificação do `id_token`,
+- [x] `docs/ARCHITECTURE.md` §5 descreve: `POST /auth/google` (verificação do `id_token`,
       auto-ligação condicionada a `email_verified`, `emailVerified: true` na auto-ligação),
       `User.password` opcional, `LinkedAccount`, `POST /users/me/set-password` (só quando
       `password` null; não revoga sessão), `change-password` em conta só-Google → 409
-- [ ] `docs/ARCHITECTURE.md` §7 — o que mudou em `deleteAccount` (conta só-Google)
-- [ ] `docs/ARCHITECTURE.md` §8 ganha o bullet do quirk 200/201 (texto exato na spec)
-- [ ] `docs/ARCHITECTURE.md` §9 ganha `GOOGLE_CLIENT_ID`
-- [ ] `docs/ARCHITECTURE.md` §4 (modelo de domínio) menciona `LinkedAccount`
-- [ ] `CLAUDE.md` (raiz) — tabela `docs/tasks/` ganha a linha da feature
-- [ ] `docs/specs/INDEX.md` — status da feature para 🚧/implementada conforme o momento;
+- [x] `docs/ARCHITECTURE.md` §7 — o que mudou em `deleteAccount` (conta só-Google)
+- [x] `docs/ARCHITECTURE.md` §8 ganha o bullet do quirk 200/201 (texto exato na spec)
+- [x] `docs/ARCHITECTURE.md` §9 ganha `GOOGLE_CLIENT_ID`
+- [x] `docs/ARCHITECTURE.md` §4 (modelo de domínio) menciona `LinkedAccount`
+- [x] `CLAUDE.md` (raiz) — tabela `docs/tasks/` ganha a linha da feature
+- [x] `docs/specs/INDEX.md` — status da feature para 🚧/implementada conforme o momento;
       pendências humanas conferidas
-- [ ] `docs/specs/login-google.md` — checkboxes de AC do backend marcados
+- [x] `docs/specs/login-google.md` — checkboxes de AC do backend marcados
 
-**Verificação:** [ ] `npm test` inteiro verde · `npm run build` limpo · `npm run lint` sem
+**Verificação:** [x] `npm test` inteiro verde · `npm run build` limpo · `npm run lint` sem
 regressão vs. `develop`
 **Dependências:** A2–A6, A8 · **Arquivos:** `docs/ARCHITECTURE.md`, `CLAUDE.md`,
 `docs/specs/INDEX.md`, `docs/specs/login-google.md` · **Escopo:** S
