@@ -126,8 +126,11 @@ as tabelas novas **não existindo**.
 | `GOOGLE_CLIENT_ID` ausente → 503 | **não** | rejeita na entrada |
 | e-mail já existente **com senha** → auto-liga | **SIM** | faz `linkedAccount.findUnique` + `create` |
 | conta só-Google → `login` por senha → 401 | **SIM** | `password` precisa estar nullable no banco |
-| `set-password` → 409 | **SIM** | lê `user.password` (coluna já existe, mas o fluxo depende do estado só-Google) |
+| `set-password` → 200 / 409 | **SIM** | depende de existir conta com `password: null` |
+| `change-password` em conta só-Google → 409 | **SIM** | idem |
+| `delete` em conta só-Google | **SIM** | idem |
 | cadastro novo via Google | **SIM** | `user.create` com `password: null` + `linkedAccount.create` |
+| corrida `P2002` no cadastro | **SIM** | precisa das tabelas para reproduzir a corrida |
 
 **Conclusão:** o humano roda `npx prisma db push && npx prisma generate` (contra o Postgres
 local dele) **depois** do merge na `develop` e **antes** de rodar a sequência de curl completa.
@@ -156,9 +159,28 @@ item a item em `docs/tasks/login-google-todo.md`.
   sem token→401, senhas diferentes→400.
 - **A6 — `forgot`→`reset` em conta só-Google.** Confirmar que define senha do zero sem quebrar
   no `null`; teste de regressão. Fecha: recuperação de conta só-Google.
-- **A7 — Docs + fechamento.** `ARCHITECTURE.md` §5 (auth: rota nova, `password` opcional,
-  `LinkedAccount`), §8 (quirk 200/201 — texto na spec), §9 (`GOOGLE_CLIENT_ID`). Suite inteira
-  verde + `lint`. Marcar `[x]` no todo. Atualizar status/pendências no `INDEX.md`.
+- **A8 — `changePassword` / `deleteAccount` com `password: null`.** Ambos fazem `bcrypt.compare`
+  contra `user.password` → 500 em conta só-Google. `changePassword` → **409** com mensagem
+  mandando usar "Definir senha", checado antes do `bcrypt`. `deleteAccount` → **comportamento
+  aguardando decisão humana** (proposta: `DeleteAccountDto` aceita `{ password?, googleCredential? }`;
+  sem senha exige `googleCredential` fresco verificado pelo helper da A2 com `sub` batendo num
+  `LinkedAccount` do user). Fecha: `change-password` em conta só-Google → 409; `delete` em conta
+  só-Google → 400 sem prova / 200 com prova.
+- **A9 — `emailVerified: true` na auto-ligação** *(dentro da A3)*. Quando a auto-ligação encontra
+  `User` com `emailVerified: false`, gravar `true` — o Google verificou a mesma caixa. Sem isso a
+  pessoa fica barrada pra sempre no `login()`. `password`/`name` continuam intactos. Fecha: AC de
+  `emailVerified` na auto-ligação (spec atualizada).
+- **A10 — Corrida no cadastro novo (`P2002`)** *(dentro da A3)*. Dois `POST /auth/google`
+  concorrentes p/ o mesmo e-mail inédito: o 2º bate no `@@unique` → capturar
+  `PrismaClientKnownRequestError` code `P2002` (em `user.create` **e** em `linkedAccount.create`)
+  e **re-resolver** (LinkedAccount por `sub` → senão User por e-mail → auto-liga). `user.create` +
+  `linkedAccount.create` do caminho novo dentro de `prisma.$transaction` (callback) para não
+  deixar `User` órfão. Fecha: AC de corrida (200, não 500).
+- **A7 — Docs + fechamento.** `ARCHITECTURE.md` §4 (`LinkedAccount`), §5 (auth: rota nova,
+  `password` opcional, `set-password`, `emailVerified` na auto-ligação, `change-password`/`delete`
+  em conta só-Google), §7 (`deleteAccount` — o que mudou), §8 (quirk 200/201 — texto na spec),
+  §9 (`GOOGLE_CLIENT_ID`). Suite inteira verde + `lint`. Marcar `[x]` no todo. Atualizar
+  status/pendências no `INDEX.md`.
 
 ### ⛳ Checkpoint A (revisão humana — **parar aqui**)
 
@@ -166,7 +188,8 @@ item a item em `docs/tasks/login-google-todo.md`.
 - [ ] Merge `feat/login-google` → `develop` com `--no-ff` + push
 - [ ] Entregar ao humano: comando do `db push` local + a sequência de curl dos caminhos ruins
       (assinatura inválida · `email_verified:false` · e-mail já existente com senha · conta
-      só-Google tentando login por senha · 409 do set-password) com o resultado esperado de cada
+      só-Google tentando login por senha · 409 do set-password · 409 do change-password em conta
+      só-Google) com o resultado esperado de cada
 - [ ] **Não seguir para a Fase B sem retorno do humano**
 
 ## Fases B / C / D (esqueleto — detalhar quando chegar)
@@ -198,5 +221,9 @@ item a item em `docs/tasks/login-google-todo.md`.
 
 ## Questões em aberto
 
-- Nenhuma. (A única da spec — `X-App` no `set-password` — foi resolvida: `change-password` não
-  exige, `set-password` também não.)
+- **`DELETE /users/me` numa conta só-Google** (A8, parte `deleteAccount`). Proposta recomendada:
+  `DeleteAccountDto` aceita `{ password?, googleCredential? }`; sem senha exige `googleCredential`
+  fresco verificado pelo helper da A2. Alternativa: só JWT, com o risco registrado no
+  `ARCHITECTURE.md` §7. **Aguardando decisão humana** — o resto da Fase A não depende disso.
+
+Resolvida: `X-App` no `set-password` — `change-password` não exige, `set-password` também não.

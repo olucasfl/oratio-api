@@ -46,11 +46,22 @@ mockado nos testes, HTTP externo mockado no nível do módulo).
      - **Não existe** → cria `User` (`name` = `name` do Google, `email`, `emailVerified: true`,
        `password: null`) **e** um `LinkedAccount`. Emite tokens. *(Cadastro novo.)*
      - **Existe** → cria um `LinkedAccount` ligado a esse `User` (auto-ligação — decisão da spec,
-       só chega aqui com `email_verified: true` já confirmado). Emite tokens.
+       só chega aqui com `email_verified: true` já confirmado). **Se `User.emailVerified` for
+       `false`, passa para `true`** (ver "E-mail verificado na auto-ligação"). Emite tokens.
        `User.password` e `User.name` **não são tocados**.
 5. Emissão de tokens: idêntica a `POST /auth/login` — reaproveita `AuthService.generateTokens`,
    que cria uma `RefreshSession` nova (com `userAgent`/`ipAddress` dos headers) e devolve
    `{ access_token, refresh_token }`.
+
+### E-mail verificado na auto-ligação
+
+Quando a auto-ligação (passo 4, "Existe") encontra um `User` com `emailVerified: false`, o
+backend **grava `emailVerified: true`**. O Google acabou de comprovar a posse da **mesma caixa
+de e-mail** que o nosso link de verificação comprovaria — a prova é equivalente. Sem isso, a
+pessoa entra por Google mas fica barrada **para sempre** no `login()` (que exige
+`emailVerified`), inclusive depois de definir uma senha por `set-password` ou pelo
+`forgot`→`reset`. Cadastro novo via Google (passo 4, "Não existe") já nasce com
+`emailVerified: true` — esta regra só estende o mesmo princípio ao `User` pré-existente.
 
 ### Nome e foto
 
@@ -84,6 +95,18 @@ mockado nos testes, HTTP externo mockado no nível do módulo).
   revogar só deslogaria a própria pessoa sem ganho de segurança. Registrar essa diferença no
   código (comentário no ponto de uso) para ninguém "consertar" copiando o `deleteMany` do
   `changePassword`.
+- **`POST /users/me/change-password` numa conta só-Google** (`password: null`): hoje faz
+  `bcrypt.compare(currentPassword, user.password)` — com `null` isso **lança** e vira 500.
+  Passa a responder **409** com `{ message: "Esta conta não tem senha. Use \"Definir senha\"
+  para criar uma." }`, checado no service **antes** do `bcrypt` (não pode depender de o frontend
+  esconder o botão).
+- **`DELETE /users/me` numa conta só-Google**: mesmo problema (`bcrypt.compare` com `null` → 500).
+  O check de senha existe de propósito (`ARCHITECTURE.md` §7: token roubado não pode, sozinho,
+  destruir a conta). **Comportamento a definir** — proposta: `DeleteAccountDto` aceita
+  `{ password?, googleCredential? }`; conta com senha → `password` obrigatório (inalterado);
+  conta sem senha → `googleCredential` fresco obrigatório, verificado pelo mesmo helper do
+  `POST /auth/google`, com `payload.sub` batendo num `LinkedAccount` deste user. Não conseguir
+  excluir a conta seria problema de LGPD, então **algum** caminho sem senha precisa existir.
 
 ### Desvincular
 
@@ -102,6 +125,9 @@ remover um `LinkedAccount`.
 | `set-password` numa conta que já tem senha | 409 | `{ message: "Esta conta já tem uma senha. Use \"Trocar senha\" nas configurações (é preciso informar a senha atual)." }` | não |
 | `set-password` sem `Authorization` / token inválido | 401 | padrão do `JwtAuthGuard` | não |
 | `set-password` com `password` != `confirmPassword` | 400 | `{ message: [...] }` | não |
+| `change-password` numa conta só-Google (`password: null`) | 409 | `{ message: "Esta conta não tem senha. Use \"Definir senha\" para criar uma." }` | não |
+| `DELETE /users/me` numa conta só-Google | (a definir — ver "Conta só-Google") | idem | não |
+| Corrida: 2º `POST /auth/google` concorrente para o mesmo e-mail inédito | 200 (não 500) | par de tokens normal | não — o `P2002` do Prisma é capturado e o fluxo re-resolve |
 
 Nenhum caminho de erro cria uma segunda conta com o mesmo e-mail — o `@unique` em `User.email`
 garante no banco, e o código trata a colisão como o fluxo de auto-ligação (passo 4), nunca deixa
@@ -229,6 +255,12 @@ registrado em `docs/specs/INDEX.md`.
   `LinkedAccount`, **quando** `POST /auth/google` com `credential` válido e `email_verified: true`,
   **então** 200 com par de tokens **desse** usuário, uma linha `LinkedAccount` nova ligada a ele,
   e `User.password` + `User.name` **inalterados**.
+- [ ] **Dado** um `User` e-mail+senha com `emailVerified: false` e sem `LinkedAccount`, **quando**
+  `POST /auth/google` auto-liga esse user, **então** `User.emailVerified` passa a `true` (o teste
+  asserta o `data` do `user.update`); `password`/`name` continuam intactos.
+- [ ] **Dado** que dois `POST /auth/google` concorrentes chegam para o mesmo e-mail inédito (o
+  2º encontra o `@@unique` já preenchido — `P2002`), **quando** o 2º é processado, **então**
+  responde 200 com o par de tokens do `User` recém-criado, não 500.
 - [ ] **Dado** um `credential` cujo payload traz `email_verified: false`, **quando**
   `POST /auth/google`, **então** 401 com `{ message: "Seu e-mail no Google não está verificado. ..." }`
   e **nenhum** `User`/`LinkedAccount` é criado ou alterado.
@@ -265,6 +297,13 @@ registrado em `docs/specs/INDEX.md`.
 - [ ] **Dado** nenhuma credencial (`Authorization` ausente), **quando**
   `POST /users/me/set-password`, **então** 401.
 - [ ] **Dado** `password` != `confirmPassword`, **quando** `POST /users/me/set-password`, **então** 400.
+- [ ] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
+  `POST /users/me/change-password`, **então** 409 `{ message: "Esta conta não tem senha. ..." }`
+  e o `bcrypt.compare` **não** é chamado com `null` (o teste asserta o mock).
+- [ ] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
+  `DELETE /users/me` **sem** a prova de identidade exigida para conta sem senha, **então** 400
+  (não 500); **e quando** com a prova válida, **então** 200 e a conta é apagada. *(Contrato
+  exato depende da decisão pendente — ver "Questões em aberto".)*
 
 ### Frontend (resumo — critérios completos no par)
 
@@ -431,5 +470,16 @@ Texto do bullet para `ARCHITECTURE.md` §8 (aplicar na Fase A, quando a rota exi
 
 ## Questões em aberto
 
-- [ ] Confirmar, contra `POST /users/change-password`, se `X-App: oratio` é exigido — a
-  `set-password` deve empilhar exatamente os mesmos guards e headers da rota irmã.
+- [ ] **`DELETE /users/me` numa conta só-Google.** Proposta (recomendada): `DeleteAccountDto`
+  aceita `{ password?, googleCredential? }` — conta com senha usa `password` (inalterado), conta
+  sem senha exige um `googleCredential` fresco verificado pelo helper do `POST /auth/google`,
+  com `payload.sub` batendo num `LinkedAccount` do user. Alternativa mais simples: aceitar só o
+  JWT para contas sem senha, registrando no `ARCHITECTURE.md` §7 que isso reabre parcialmente o
+  risco de "token roubado → exclusão". **Aguardando decisão humana antes de implementar a A8
+  (parte `deleteAccount`).**
+
+### Resolvida
+
+- `X-App` no `set-password`: `POST /users/me/change-password` **não** exige `X-App` hoje, então
+  `set-password` também não. Pilha: `@UseGuards(JwtAuthGuard, ThrottlerGuard)` +
+  `@Throttle({ default: { limit: 5, ttl: 60_000 } })`.

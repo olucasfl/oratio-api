@@ -98,13 +98,21 @@ Colisão de e-mail nunca deve vazar erro de constraint — o passo 2 já cobre.
 - [ ] `User` e-mail+senha existe, sem `LinkedAccount` → 200 com tokens **desse** user;
       `LinkedAccount` nova ligada a ele; `password` e `name` **inalterados**
 - [ ] resposta é **200** (não 201)
+- [ ] **A9** — auto-ligação num `User` com `emailVerified: false` → grava `emailVerified: true`
+      (teste asserta o `data` do `user.update`); `password`/`name` intactos
+- [ ] **A10** — `user.create` + `linkedAccount.create` do caminho novo dentro de
+      `prisma.$transaction` (callback); `PrismaClientKnownRequestError` `P2002` (em `user.create`
+      **e** `linkedAccount.create`) é capturado e o fluxo **re-resolve** (LinkedAccount por `sub`
+      → senão User por e-mail → auto-liga) → 200, não 500
 
 **Verificação:**
-- [ ] `npm test -- auth` verde — asserta args de `user.create` / `linkedAccount.create` e que
-      `user.update` **não** foi chamado no caminho de auto-ligação
+- [ ] `npm test -- auth` verde — asserta args de `user.create` / `linkedAccount.create`; que
+      `user.update` só é chamado no caminho `emailVerified: false`; e o caminho `P2002` (mock
+      de `create` lançando `{ code: 'P2002' }` na 1ª, sucesso na re-resolução)
 - [ ] `npm run build` limpo
 
 **Dependências:** A2 · **Arquivos:** `auth.service.ts`, `auth.service.spec.ts` · **Escopo:** M
+**Absorve:** A9 (`emailVerified` na auto-ligação) e A10 (corrida `P2002`) — do pedido do humano.
 
 ---
 
@@ -173,12 +181,43 @@ corrigir com escopo mínimo.
 
 ---
 
+### A8 — `changePassword` / `deleteAccount` com `password: null`
+
+**Descrição:** `UsersService.changePassword` (`users.service.ts:175`) e `deleteAccount` (`:355`)
+fazem `bcrypt.compare(x, user.password)` — com `null` lançam → 500 numa conta só-Google.
+
+- **`changePassword`**: antes do `bcrypt.compare`, se `user.password == null` →
+  `ConflictException('Esta conta não tem senha. Use "Definir senha" para criar uma.')`.
+  Comentário explicando que não pode depender do frontend esconder o botão.
+- **`deleteAccount`**: **BLOQUEADO — aguardando decisão humana** (só JWT × re-auth Google).
+  Proposta recomendada: `DeleteAccountDto` → `{ password?: string; googleCredential?: string }`;
+  `user.password != null` → `password` obrigatório + `bcrypt.compare` (inalterado);
+  `user.password == null` → `googleCredential` obrigatório, verificado pelo helper da A2, com
+  `payload.sub` batendo num `LinkedAccount` (`provider: 'google'`) deste user. Sem a prova
+  adequada → `BadRequestException` (não 500).
+
+**Critérios de aceite (BDD da spec):**
+- [ ] `change-password` autenticado numa conta `password: null` → 409, mensagem aponta p/
+      "Definir senha"; `bcrypt.compare` **não** chamado com `null` (teste asserta o mock)
+- [ ] `delete` autenticado numa conta `password: null` sem a prova exigida → 400 (não 500)
+- [ ] `delete` autenticado numa conta `password: null` com a prova válida → 200, conta apagada
+- [ ] `delete`/`change-password` numa conta **com** senha → comportamento atual inalterado
+
+**Verificação:** [ ] `npm test -- users` verde · `npm run build` limpo
+**Dependências:** A1, A2 (helper de verificação, se a proposta for aceita) ·
+**Arquivos:** `users.service.ts`, `users.controller.ts` (se DTO mudar),
+`dto/delete-account.dto.ts`, `users.service.spec.ts` · **Escopo:** S
+
+---
+
 ### A7 — Docs + fechamento da Fase A
 
 **Critérios de aceite:**
 - [ ] `docs/ARCHITECTURE.md` §5 descreve: `POST /auth/google` (verificação do `id_token`,
-      auto-ligação condicionada a `email_verified`), `User.password` opcional, `LinkedAccount`,
-      `POST /users/me/set-password` (só quando `password` null; não revoga sessão)
+      auto-ligação condicionada a `email_verified`, `emailVerified: true` na auto-ligação),
+      `User.password` opcional, `LinkedAccount`, `POST /users/me/set-password` (só quando
+      `password` null; não revoga sessão), `change-password` em conta só-Google → 409
+- [ ] `docs/ARCHITECTURE.md` §7 — o que mudou em `deleteAccount` (conta só-Google)
 - [ ] `docs/ARCHITECTURE.md` §8 ganha o bullet do quirk 200/201 (texto exato na spec)
 - [ ] `docs/ARCHITECTURE.md` §9 ganha `GOOGLE_CLIENT_ID`
 - [ ] `docs/ARCHITECTURE.md` §4 (modelo de domínio) menciona `LinkedAccount`
@@ -189,7 +228,7 @@ corrigir com escopo mínimo.
 
 **Verificação:** [ ] `npm test` inteiro verde · `npm run build` limpo · `npm run lint` sem
 regressão vs. `develop`
-**Dependências:** A2–A6 · **Arquivos:** `docs/ARCHITECTURE.md`, `CLAUDE.md`,
+**Dependências:** A2–A6, A8 · **Arquivos:** `docs/ARCHITECTURE.md`, `CLAUDE.md`,
 `docs/specs/INDEX.md`, `docs/specs/login-google.md` · **Escopo:** S
 
 ---
@@ -203,7 +242,8 @@ regressão vs. `develop`
         de que os caminhos "SIM" da tabela do plano dão 500 sem ele
   - [ ] sequência de `curl` dos caminhos ruins, com o esperado de cada:
         assinatura inválida · `email_verified:false` · e-mail já existente com senha ·
-        conta só-Google tentando login por senha · 409 do `set-password`
+        conta só-Google tentando login por senha · 409 do `set-password` ·
+        409 do `change-password` em conta só-Google
 - [ ] **Não iniciar a Fase B sem retorno do humano**
 
 ---
