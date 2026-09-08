@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes, createHash } from 'crypto';
+import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import { MailService } from '../mail/mail.service';
 import { Response } from 'express';
 import { AppType } from 'src/enums/app-type.enum';
@@ -89,6 +91,238 @@ export class AuthService {
 
     return this.generateTokens(user.id, user.email, deviceInfo);
 
+  }
+
+  /*
+  =============================
+  LOGIN COM GOOGLE
+  =============================
+  Fluxo: o frontend manda o id_token (JWT) que o Google Identity Services
+  entregou no callback do botão. O backend verifica e resolve/cria a conta,
+  devolvendo o MESMO par { access_token, refresh_token } do login normal.
+  Detalhe em docs/specs/login-google.md.
+  */
+
+  private readonly GOOGLE_ISSUERS = [
+    'accounts.google.com',
+    'https://accounts.google.com',
+  ];
+
+  private getGoogleClientId(): string {
+    const id = process.env.GOOGLE_CLIENT_ID;
+    if (!id) {
+      // 503, não 500: é config faltando, não bug. O frontend trata como
+      // "indisponível" e mantém o login por senha.
+      throw new ServiceUnavailableException(
+        'Login com Google indisponível no momento.',
+      );
+    }
+    return id;
+  }
+
+  /*
+  Verifica o id_token e devolve só o que a resolução de conta precisa.
+  `client.verifyIdToken` já valida assinatura (chaves públicas do Google),
+  `aud` (== nosso client id), `iss` e `exp`. Reforçamos o `iss` de forma
+  explícita (a spec exige) e exigimos `email_verified === true` — essa a lib
+  NÃO checa, e sem ela a auto-ligação vira caminho de tomada de conta.
+  */
+  private async verifyGoogleCredential(
+    credential: string,
+  ): Promise<{ sub: string; email: string; name: string }> {
+
+    const clientId = this.getGoogleClientId();
+    const client = new OAuth2Client(clientId);
+
+    let payload: TokenPayload | undefined;
+
+    try {
+      const ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: clientId,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException(
+        'Não foi possível validar seu login com o Google. Tente de novo.',
+      );
+    }
+
+    if (
+      !payload ||
+      !payload.sub ||
+      !payload.email ||
+      !this.GOOGLE_ISSUERS.includes(payload.iss)
+    ) {
+      throw new UnauthorizedException(
+        'Não foi possível validar seu login com o Google. Tente de novo.',
+      );
+    }
+
+    if (payload.email_verified !== true) {
+      throw new UnauthorizedException(
+        'Seu e-mail no Google não está verificado. Confirme seu e-mail na sua Conta Google e tente de novo — ou crie sua conta do Oratio com e-mail e senha.',
+      );
+    }
+
+    return {
+      sub: payload.sub,
+      email: payload.email.trim().toLowerCase(),
+      // `name` só é usado na CRIAÇÃO da conta (nunca sobrescreve depois).
+      // `User.name` é obrigatório no schema; fallback defensivo caso o Google
+      // não devolva (não deveria, com o escopo `profile`).
+      name: payload.name?.trim() || payload.email.split('@')[0],
+    };
+  }
+
+  async loginWithGoogle(credential: string, deviceInfo?: DeviceInfo) {
+
+    const profile = await this.verifyGoogleCredential(credential);
+
+    // 1. Já existe um vínculo Google para este `sub`? -> login direto.
+    const link = await this.prisma.linkedAccount.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: 'google',
+          providerAccountId: profile.sub,
+        },
+      },
+    });
+
+    if (link) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: link.userId },
+      });
+      if (!user) {
+        // vínculo órfão (não deveria existir — onDelete Cascade cuida disso)
+        throw new UnauthorizedException(
+          'Não foi possível validar seu login com o Google. Tente de novo.',
+        );
+      }
+      return this.generateTokens(user.id, user.email, deviceInfo);
+    }
+
+    // 2. Já existe um User com este e-mail? -> auto-ligação.
+    const existing = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+
+    if (existing) {
+      return this.linkGoogleAndIssue(existing, profile, deviceInfo);
+    }
+
+    // 3. Cadastro novo. User + vínculo numa transação pra nunca deixar um
+    //    User sem senha e sem vínculo (que não conseguiria logar de jeito
+    //    nenhum).
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            name: profile.name,
+            email: profile.email,
+            emailVerified: true,
+            password: null,
+          },
+        });
+        await tx.linkedAccount.create({
+          data: {
+            userId: user.id,
+            provider: 'google',
+            providerAccountId: profile.sub,
+            emailSnapshot: profile.email,
+          },
+        });
+        return user;
+      });
+      return this.generateTokens(created.id, created.email, deviceInfo);
+    } catch (err) {
+      if (!this.isUniqueConstraintError(err)) {
+        throw err;
+      }
+      // Corrida: dois cliques no botão -> duas requisições concorrentes pro
+      // mesmo e-mail/sub inédito. A 2ª bate no @@unique. Re-resolve uma vez
+      // (agora o vínculo ou o User já existem) em vez de estourar 500.
+      return this.resolveGoogleAfterRace(profile, deviceInfo);
+    }
+  }
+
+  private async linkGoogleAndIssue(
+    user: { id: string; email: string; emailVerified: boolean },
+    profile: { sub: string; email: string },
+    deviceInfo?: DeviceInfo,
+  ) {
+    try {
+      await this.prisma.linkedAccount.create({
+        data: {
+          userId: user.id,
+          provider: 'google',
+          providerAccountId: profile.sub,
+          emailSnapshot: profile.email,
+        },
+      });
+    } catch (err) {
+      if (!this.isUniqueConstraintError(err)) {
+        throw err;
+      }
+      // vínculo criado concorrentemente entre o findUnique e aqui — ok, segue.
+    }
+
+    /*
+    E-mail verificado na auto-ligação: o Google acabou de comprovar a MESMA
+    caixa de e-mail que o nosso link de verificação comprovaria. Sem marcar
+    `emailVerified: true` aqui, uma conta que estava com o e-mail não
+    verificado fica barrada PARA SEMPRE no login por senha (que exige
+    `emailVerified`), inclusive depois de definir uma senha.
+    */
+    if (!user.emailVerified) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: true },
+      });
+    }
+
+    return this.generateTokens(user.id, user.email, deviceInfo);
+  }
+
+  private async resolveGoogleAfterRace(
+    profile: { sub: string; email: string },
+    deviceInfo?: DeviceInfo,
+  ) {
+    const link = await this.prisma.linkedAccount.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: 'google',
+          providerAccountId: profile.sub,
+        },
+      },
+    });
+
+    if (link) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: link.userId },
+      });
+      if (user) {
+        return this.generateTokens(user.id, user.email, deviceInfo);
+      }
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+    if (user) {
+      return this.linkGoogleAndIssue(user, profile, deviceInfo);
+    }
+
+    // Os dois sumiram de novo entre uma query e outra — altamente improvável.
+    throw new ServiceUnavailableException(
+      'Não foi possível concluir o login com o Google. Tente de novo.',
+    );
+  }
+
+  private isUniqueConstraintError(err: unknown): boolean {
+    return (
+      err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+    );
   }
 
   private readonly REFRESH_TTL_MS = 1000 * 60 * 60 * 24 * 180;

@@ -1,9 +1,10 @@
-import { Body, Controller, Post, Get, Query, Res, Req, Headers, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Get, Query, Res, Req, Headers, HttpCode, UnauthorizedException, UseGuards } from '@nestjs/common';
 import type { Response } from "express";
 import { AuthService } from './auth.service';
 import { getClientIp } from './utils/session-info.util';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
+import { GoogleLoginDto } from './dto/google-login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -29,6 +30,25 @@ export class AuthController {
   @Post('login')
   login(@Body() body: LoginDto, @Req() req: any) {
     return this.authService.login(body.email, body.password, {
+      userAgent: req.headers['user-agent'],
+      ipAddress: getClientIp(req),
+    });
+  }
+
+  /*
+  Login com Google. Pública, como /login (que também não confere x-app —
+  só POST /users confere). Throttle 5/min por paridade com o /login, mas o
+  alvo aqui é abuso genérico, não força bruta: não há senha pra adivinhar,
+  o `credential` só passa se o Google o assinou.
+
+  Responde 200 (não o 201 default do Nest): descreve melhor "sessão emitida".
+  O /login continua 201 por outro motivo — ver ARCHITECTURE §8.
+  */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('google')
+  loginWithGoogle(@Body() body: GoogleLoginDto, @Req() req: any) {
+    return this.authService.loginWithGoogle(body.credential, {
       userAgent: req.headers['user-agent'],
       ipAddress: getClientIp(req),
     });

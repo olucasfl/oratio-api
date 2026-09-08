@@ -118,7 +118,7 @@ remover um `LinkedAccount`.
 | Situação | Status | Corpo | Loga? |
 |---|---|---|---|
 | `credential` ausente/não-string no corpo | 400 | `{ message: [...], error: "Bad Request" }` (ValidationPipe) | não |
-| Header `X-App` ausente/errado | igual ao que `POST /auth/login` faz hoje (a confirmar contra a rota) | idem | idem |
+| Header `X-App` ausente | **sem efeito** — `POST /auth/login` também não confere `x-app` hoje (só `POST /users` confere). O frontend manda `x-app: oratio` em toda request de qualquer forma. | — | — |
 | `credential` com assinatura inválida / `exp` no passado / `aud` de outro client | 401 | `{ message: "Não foi possível validar seu login com o Google. Tente de novo." }` | não (é erro de cliente, não incidente) |
 | `email_verified: false` no payload | 401 | `{ message: "Seu e-mail no Google não está verificado. Confirme seu e-mail na sua Conta Google e tente de novo — ou crie sua conta do Oratio com e-mail e senha." }` | não |
 | `GOOGLE_CLIENT_ID` não configurada no ambiente | 503 | `{ message: "Login com Google indisponível no momento." }` | sim (erro de config) |
@@ -148,7 +148,9 @@ Sem fronteira de dia nova. Expiração do `id_token` é `exp` (epoch UTC), verif
   (spam de requisições, alguém varrendo a rota) — **não** é defesa de força bruta: não há senha
   para adivinhar, o `credential` só é aceito se o Google o assinou. É o mesmo número do login por
   paridade, não porque o modelo de ameaça seja o mesmo.
-- **Headers exigidos:** `X-App: oratio` (mesmo tratamento de `/auth/login`); `Content-Type: application/json`.
+- **Headers exigidos:** `Content-Type: application/json`. `X-App` **não** é conferido (nem o
+  `/auth/login` confere hoje) — o frontend manda `x-app: oratio` em tudo, mas a rota não depende
+  disso.
 - **Request DTO — `GoogleLoginDto`:**
   | Campo | Tipo | Validação |
   |---|---|---|
@@ -271,9 +273,6 @@ registrado em `docs/specs/INDEX.md`.
 - [ ] **Dado** um `credential` válido mas com `aud` de outro client ID, **quando**
   `POST /auth/google`, **então** 401.
 - [ ] **Dado** um corpo `{}` (sem `credential`), **quando** `POST /auth/google`, **então** 400.
-- [ ] **Dado** uma requisição **sem** o header `X-App: oratio`, **quando** `POST /auth/google`,
-  **então** a mesma resposta que `POST /auth/login` devolve sem `X-App` (a confirmar contra a rota
-  existente durante a implementação).
 - [ ] **Dado** 6 requisições em 60s do mesmo IP, **quando** a 6ª chega em `POST /auth/google`,
   **então** 429.
 

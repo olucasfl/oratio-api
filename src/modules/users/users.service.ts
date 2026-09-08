@@ -219,6 +219,53 @@ export class UsersService {
 
   /*
   =============================
+  DEFINIR SENHA (autenticado, sem senha atual)
+  =============================
+  Para quem entrou só por Google e ainda não tem senha. Só aceita quando
+  `User.password` é null. Se já houver senha, 409 — a rota certa aí é
+  `change-password` (que exige a senha atual). Isso fecha o caminho de
+  alguém com uma sessão de acesso roubada CRIAR uma senha e persistir numa
+  conta que já tinha dono.
+
+  NÃO revoga `RefreshSession` — diferente de `changePassword`/`resetPassword`.
+  Aquelas revogam porque uma senha que existia deixou de valer; aqui nada
+  foi invalidado (não havia senha), então revogar só deslogaria a própria
+  pessoa sem ganho de segurança.
+  */
+  async setPassword(userId: string, password: string, confirmPassword: string) {
+
+    if (password !== confirmPassword) {
+      throw new BadRequestException('As senhas não conferem');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    if (user.password) {
+      throw new ConflictException(
+        'Esta conta já tem uma senha. Use "Trocar senha" nas configurações (é preciso informar a senha atual).',
+      );
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    });
+
+    return { message: 'Senha definida.' };
+
+  }
+
+  /*
+  =============================
   TROCA DE EMAIL (2 passos: solicitar -> confirmar no novo endereço)
   =============================
   */

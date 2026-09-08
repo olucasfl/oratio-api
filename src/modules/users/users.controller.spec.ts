@@ -62,6 +62,7 @@ describe('UsersController (delegation)', () => {
       getUserActivity: jest.fn(),
       updateProfile: jest.fn(),
       changePassword: jest.fn(),
+      setPassword: jest.fn(),
       requestEmailChange: jest.fn(),
       cancelEmailChange: jest.fn(),
       getMySessions: jest.fn(),
@@ -272,6 +273,27 @@ describe('UsersController (delegation)', () => {
       'user-1',
       'CorrectPass123',
       'NewPass123',
+    );
+  });
+
+  it('setPassword() rejects without a userId', () => {
+    expect(() =>
+      controller.setPassword(unauthed, { password: 'BrandNew123', confirmPassword: 'BrandNew123' } as any),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it('setPassword() delegates password and confirmation', () => {
+    userService.setPassword.mockReturnValue('set');
+
+    controller.setPassword(authed('user-1'), {
+      password: 'BrandNew123',
+      confirmPassword: 'BrandNew123',
+    } as any);
+
+    expect(userService.setPassword).toHaveBeenCalledWith(
+      'user-1',
+      'BrandNew123',
+      'BrandNew123',
     );
   });
 

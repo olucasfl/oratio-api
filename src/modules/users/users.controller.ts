@@ -16,6 +16,7 @@ import {
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SetPasswordDto } from './dto/set-password.dto';
 import { ChangeEmailDto } from './dto/change-email.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -253,6 +254,32 @@ export class UsersController {
       userId,
       body.currentPassword,
       body.newPassword,
+    );
+  }
+
+  /*
+  Definir a primeira senha (conta que entrou só por Google). Mesma pilha de
+  guard/throttle do change-password. `x-app` não é exigido (o change-password
+  também não exige).
+  */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @Post('me/set-password')
+  setPassword(
+    @Req() req: any,
+    @Body() body: SetPasswordDto,
+  ) {
+
+    const userId = req?.user?.userId;
+
+    if (!userId) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.userService.setPassword(
+      userId,
+      body.password,
+      body.confirmPassword,
     );
   }
 
