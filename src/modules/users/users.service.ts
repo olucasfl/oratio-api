@@ -182,6 +182,17 @@ export class UsersService {
       throw new UnauthorizedException();
     }
 
+    /*
+    Conta só-Google: não existe "senha atual" para conferir, e
+    `bcrypt.compare(x, null)` lança. 409 explícito apontando para "definir
+    senha" — não pode depender de o frontend esconder o botão de troca.
+    */
+    if (!user.password) {
+      throw new ConflictException(
+        'Esta conta não tem senha. Use "Definir senha" para criar uma.',
+      );
+    }
+
     const matches = await bcrypt.compare(currentPassword, user.password);
 
     if (!matches) {
@@ -203,6 +214,53 @@ export class UsersService {
     });
 
     return { message: 'Password changed successfully' };
+
+  }
+
+  /*
+  =============================
+  DEFINIR SENHA (autenticado, sem senha atual)
+  =============================
+  Para quem entrou só por Google e ainda não tem senha. Só aceita quando
+  `User.password` é null. Se já houver senha, 409 — a rota certa aí é
+  `change-password` (que exige a senha atual). Isso fecha o caminho de
+  alguém com uma sessão de acesso roubada CRIAR uma senha e persistir numa
+  conta que já tinha dono.
+
+  NÃO revoga `RefreshSession` — diferente de `changePassword`/`resetPassword`.
+  Aquelas revogam porque uma senha que existia deixou de valer; aqui nada
+  foi invalidado (não havia senha), então revogar só deslogaria a própria
+  pessoa sem ganho de segurança.
+  */
+  async setPassword(userId: string, password: string, confirmPassword: string) {
+
+    if (password !== confirmPassword) {
+      throw new BadRequestException('As senhas não conferem');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    if (user.password) {
+      throw new ConflictException(
+        'Esta conta já tem uma senha. Use "Trocar senha" nas configurações (é preciso informar a senha atual).',
+      );
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    });
+
+    return { message: 'Senha definida.' };
 
   }
 
@@ -360,6 +418,21 @@ export class UsersService {
 
     if (!user) {
       throw new UnauthorizedException();
+    }
+
+    /*
+    Conta só-Google: não há senha para confirmar a exclusão, e
+    `bcrypt.compare(x, null)` lançaria (viraria 500). O caminho definitivo
+    — re-autenticar no Google e conferir o `sub` contra um LinkedAccount
+    deste user — está pendente de decisão humana (spec, "Questões em
+    aberto"; plano A8). Por ora recusa com 400 em vez de estourar 500;
+    não conseguir excluir a conta é problema de LGPD, então esta é uma
+    parada temporária, não o destino.
+    */
+    if (!user.password) {
+      throw new BadRequestException(
+        'Não foi possível confirmar sua identidade para excluir a conta.',
+      );
     }
 
     const matches = await bcrypt.compare(password, user.password);

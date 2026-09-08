@@ -296,6 +296,65 @@ describe('UsersService', () => {
       const updateArgs = prisma.user.update.mock.calls[0][0];
       await expect(bcrypt.compare('NewPass123', updateArgs.data.password)).resolves.toBe(true);
     });
+
+    it('A8 — 409 (not 500) on a passwordless account, without calling bcrypt', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+
+      await expect(
+        service.changePassword('user-google', 'whatever', 'NewPass123'),
+      ).rejects.toMatchObject({
+        message: 'Esta conta não tem senha. Use "Definir senha" para criar uma.',
+      });
+      // não chegou ao bcrypt.compare(x, null) nem ao update
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.refreshSession.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setPassword', () => {
+    it('rejects when the two fields do not match', async () => {
+      await expect(
+        service.setPassword('user-1', 'BrandNew123', 'Different123'),
+      ).rejects.toMatchObject({ message: 'As senhas não conferem' });
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('throws when the user no longer exists', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await expect(
+        service.setPassword('ghost', 'BrandNew123', 'BrandNew123'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('409 when the account already has a password (points to change-password)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', password: 'existing-hash' });
+
+      await expect(
+        service.setPassword('user-1', 'BrandNew123', 'BrandNew123'),
+      ).rejects.toMatchObject({
+        message:
+          'Esta conta já tem uma senha. Use "Trocar senha" nas configurações (é preciso informar a senha atual).',
+      });
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('sets the hashed password and does NOT revoke any session', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      prisma.user.update.mockResolvedValue({});
+
+      const result = await service.setPassword('user-google', 'BrandNew123', 'BrandNew123');
+
+      expect(result).toEqual({ message: 'Senha definida.' });
+
+      const updateArgs = prisma.user.update.mock.calls[0][0];
+      expect(updateArgs.where).toEqual({ id: 'user-google' });
+      await expect(
+        bcrypt.compare('BrandNew123', updateArgs.data.password),
+      ).resolves.toBe(true);
+
+      // diferente do changePassword: nada de deleteMany
+      expect(prisma.refreshSession.deleteMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('requestEmailChange', () => {
@@ -449,6 +508,19 @@ describe('UsersService', () => {
         service.deleteAccount('user-1', 'WrongPass'),
       ).rejects.toBeInstanceOf(UnauthorizedException);
 
+      expect(prisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('A8 — 400 (not 500) on a passwordless account, and never calls delete', async () => {
+      // Parada temporária: o caminho definitivo (re-auth Google) aguarda
+      // decisão humana. O que NÃO pode é estourar 500 no bcrypt.compare(x, null).
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+
+      await expect(
+        service.deleteAccount('user-google', 'whatever'),
+      ).rejects.toMatchObject({
+        message: 'Não foi possível confirmar sua identidade para excluir a conta.',
+      });
       expect(prisma.user.delete).not.toHaveBeenCalled();
     });
 

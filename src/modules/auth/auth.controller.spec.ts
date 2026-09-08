@@ -47,6 +47,7 @@ describe('AuthController (delegation)', () => {
   beforeEach(() => {
     authService = {
       login: jest.fn(),
+      loginWithGoogle: jest.fn(),
       refresh: jest.fn(),
       logout: jest.fn(),
       verifyEmail: jest.fn(),
@@ -75,6 +76,22 @@ describe('AuthController (delegation)', () => {
       ipAddress: '203.0.113.7',
     });
     expect(result).toBe('login-result');
+  });
+
+  it('loginWithGoogle() passes the credential plus the extracted user agent and IP', () => {
+    const req = { headers: { 'user-agent': 'Mozilla/5.0' } };
+    authService.loginWithGoogle.mockReturnValue('google-result');
+
+    const result = controller.loginWithGoogle(
+      { credential: 'google.id.token' } as any,
+      req,
+    );
+
+    expect(authService.loginWithGoogle).toHaveBeenCalledWith('google.id.token', {
+      userAgent: 'Mozilla/5.0',
+      ipAddress: '203.0.113.7',
+    });
+    expect(result).toBe('google-result');
   });
 
   it('refresh() passes through the refresh token', () => {
