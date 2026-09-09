@@ -258,8 +258,27 @@ regressão vs. `develop`
 
 ---
 
-## Fase B — Frontend, botão e fluxo  *(detalhar quando chegar — checklist em `oratio/`)*
-## Fase C — Bordas + definir senha (UI)  *(idem)*
-## Fase D — CSP, deploy, PWA  *(idem)*
+## Fase B — Frontend, botão e fluxo  *(✅ concluída — código na `develop` do `oratio`, branch `feat/login-google-fase-b`; falta o teste manual no navegador, que é humano)*
+
+## Fase C — Bordas + definir senha (UI)
+
+O grosso é frontend (checklist em `oratio/docs/tasks/login-google-todo.md`). A **única** tarefa
+de backend:
+
+### C1 — `GET /users/me` devolve `hasPassword`
+
+**Descrição:** `UsersService.getProfile` passa a selecionar `password` e retornar
+`hasPassword: user.password != null` (o hash **nunca** vai no corpo). É o sinal que o frontend
+usa pra mostrar "Definir senha" **ou** "Trocar senha".
+
+**Critérios de aceite:**
+- [x] `User` sem senha → `hasPassword: false`; `User` com senha → `hasPassword: true`
+- [x] o retorno não tem a propriedade `password` (teste asserta `not.toHaveProperty('password')`)
+
+**Verificação:** [x] `npm test -- users.service` verde · `npm run build` limpo
+**Arquivos:** `users.service.ts`, `users.service.spec.ts`, `docs/ARCHITECTURE.md` §5 ·
+**Escopo:** XS · **Entregue na branch** `feat/login-google-c`
+
+## Fase D — CSP, deploy, PWA  *(detalhar quando chegar — checklist em `oratio/`)*
 
 Ver `docs/tasks/login-google-plan.md` → "Fases B / C / D" e `oratio/docs/tasks/login-google-todo.md`.

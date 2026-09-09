@@ -110,6 +110,7 @@ export class UsersService {
         createdAt: true,
         emailVerified: true,
         isAdmin: true,
+        password: true,
         spiritualStats: true,
         consecrations: true,
         completedConsecrationDays: { select: { id: true } },
@@ -129,6 +130,11 @@ export class UsersService {
     createdAt: user.createdAt,
     emailVerified: user.emailVerified,
     isAdmin: user.isAdmin,
+
+    // Conta que entrou só por Google nasce sem senha. O frontend usa isso
+    // para mostrar "Definir senha" em vez de "Trocar senha" (que exige a
+    // senha atual) — nunca expõe o hash em si.
+    hasPassword: user.password != null,
 
     spiritualProgress: {
 

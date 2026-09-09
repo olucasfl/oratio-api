@@ -9,7 +9,7 @@ no mesmo commit — e `/docs-sync` confere se ela bate com a realidade.
 | Reformulação das notificações | — | `tasks/notifications-plan.md` | `tasks/notifications-todo.md` | `oratio/docs/tasks/notifications.md` (ponteiro) | ✅ concluída (Fases 1–5) |
 | Perfis de resposta do VoxAI | — *(não precisa: já entregue)* | `tasks/vox-profiles-plan.md` | `tasks/vox-profiles-todo.md` | `oratio/docs/tasks/vox-profiles-todo.md` | ✅ **em produção** (`main`: 2 campos no schema, 6 perfis com `systemAppend`, 3 rotas; `db push` aplicado) |
 | Bíblia de Estudo | — *(não precisa: já entregue)* | `tasks/biblia-plan.md` | `tasks/biblia-todo.md` | `oratio/docs/tasks/biblia-*.md` | ✅ **em produção** (B1–B3 na `main`; `npx jest bible` → 4 suítes, 39 testes verdes) |
-| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 em andamento — Fase A (backend, incl. A8 `deleteAccount` re-auth Google) + Fase B (frontend) na `develop`; falta teste manual no navegador, Fase C (UI definir senha) e Fase D (CSP/deploy/PWA) |
+| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 em andamento — Fase A + Fase B na `develop`. Fases A8 (`deleteAccount` re-auth Google), C1 (`GET /users/me` → `hasPassword`) e C (UI "definir senha" no `oratio`) **em branches, não mergeadas** (`feat/login-google-a8-delete`, `feat/login-google-c`, `oratio:feat/login-google-fase-c`). Falta: revisão/merge dessas branches, teste manual no navegador, Fase D (CSP/deploy/PWA). |
 
 ## Legenda de status
 

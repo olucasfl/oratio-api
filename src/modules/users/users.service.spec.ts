@@ -199,6 +199,7 @@ describe('UsersService', () => {
         createdAt: new Date(),
         emailVerified: true,
         isAdmin: false,
+        password: null,
         spiritualStats: null,
         consecrations: [],
         completedConsecrationDays: [],
@@ -214,6 +215,8 @@ describe('UsersService', () => {
         lastPrayerDate: null,
         prayerStreak: 0,
       });
+      // conta só-Google: sem senha
+      expect(result.hasPassword).toBe(false);
     });
 
     it('reports real stats and consecration progress when they exist', async () => {
@@ -226,6 +229,7 @@ describe('UsersService', () => {
         createdAt: new Date(),
         emailVerified: true,
         isAdmin: false,
+        password: 'hashed-secret',
         spiritualStats: {
           prayersPrayed: 12,
           rosariesPrayed: 3,
@@ -246,6 +250,9 @@ describe('UsersService', () => {
         lastPrayerDate,
         prayerStreak: 5,
       });
+      // conta com senha, e o hash NUNCA vaza no retorno
+      expect(result.hasPassword).toBe(true);
+      expect(result).not.toHaveProperty('password');
     });
   });
 
