@@ -322,8 +322,9 @@ E3 = logout antes de descartar). Backend nas branches `feat/login-google-fase-e`
       `ARCHITECTURE.md` §5 (novo shape + a reversão do E1). 842 testes verdes · build limpo.
       - AC: sem `User` → `true/false` ✓; `User` sem link → `false/true` ✓; `sub` com link →
         `false/false` ✓; corrida `P2002` → `isNewUser:false` ✓.
-- [ ] **E7-backend** — só confirmar cobertura (A8 já implementou). `users.service.spec.ts`:
-      casos "`sub` de outra conta" e "`sub` sem `LinkedAccount`" → 400, `user.delete` não roda.
+- [x] **E7-backend** — A8 já implementou o service. `users.service.spec.ts`: o caso "`sub` sem
+      `LinkedAccount`" já existia; **adicionado** o caso "`sub` casa um `LinkedAccount` de OUTRO
+      user" → 400, `user.delete` não roda. 76 testes de `users.service` verdes.
 
 ### Frontend (`oratio`)
 

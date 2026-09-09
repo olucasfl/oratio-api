@@ -580,7 +580,7 @@ describe('UsersService', () => {
       expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-google' } });
     });
 
-    it('A8 — passwordless account: valid Google token but sub is not linked to this user → 400, never calls delete', async () => {
+    it('A8 — passwordless account: valid Google token but sub is not linked to anyone → 400, never calls delete', async () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
       authService.verifyGoogleIdentity.mockResolvedValue({
         sub: 'someone-elses-sub',
@@ -591,6 +591,27 @@ describe('UsersService', () => {
 
       await expect(
         service.deleteAccount('user-google', { googleCredential: 'valid-but-wrong' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('E7 — passwordless account: Google token whose sub is linked to ANOTHER user → 400, never calls delete', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      authService.verifyGoogleIdentity.mockResolvedValue({
+        sub: 'sub-de-outra-conta',
+        email: 'outra@exemplo.com',
+        name: 'Beltrano',
+      });
+      // o sub casa um LinkedAccount, mas de OUTRO usuário
+      prisma.linkedAccount.findUnique.mockResolvedValue({
+        userId: 'outro-user',
+        provider: 'google',
+        providerAccountId: 'sub-de-outra-conta',
+      });
+
+      await expect(
+        service.deleteAccount('user-google', { googleCredential: 'valido-mas-de-outra-conta' }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(prisma.user.delete).not.toHaveBeenCalled();
