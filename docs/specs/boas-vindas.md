@@ -161,11 +161,16 @@ model User {
 Tem **duas mudanças**, e elas são de natureza diferente:
 
 1. **`ALTER TABLE "User" ADD COLUMN "welcomeSeenAt" TIMESTAMP(3);`** — **aditivo**,
-   não-destrutivo, não-bloqueante (coluna nova nullable, sem default). Igual ao padrão do
-   `login-google` (que só criou tabela vazia).
+   não-destrutivo, não-bloqueante (coluna nova nullable, sem default).
 2. **`UPDATE "User" SET "welcomeSeenAt" = now() WHERE "welcomeSeenAt" IS NULL;`** — o backfill.
    **Isto escreve em TODA linha da tabela `User`.** Não é "aditivo" no sentido do item 1 — é uma
-   escrita de dados em massa. Precisa de tratamento à parte no script e no push.
+   escrita de dados em massa. Precisa de tratamento à parte no script.
+
+> **Premissa corrigida (2026-09-09):** versões anteriores desta spec diziam que o `db push`
+> pegaria carona no do `login-google`. **Não pega** — o `db push` de produção do login-google já
+> foi rodado nesta sessão (`LinkedAccount` + `password` nullable já em produção no Supabase).
+> A coluna `welcomeSeenAt` **precisa do próprio push**: ela não existe no schema de produção, e
+> o `GET /users/me`/`markWelcomeSeen` dão 500 sem ela.
 
 **Por que o backfill:** sem ele, o guia apareceria **retroativamente para toda a base** no
 próximo login de cada um. Com `welcomeSeenAt = now()` em quem já existe, o guia aparece **só
@@ -188,15 +193,17 @@ O `.sql` para revisão humana precisa ter, **em passos numerados e separados**:
     `welcomeSeenAt` preenchido. Se precisar reverter o *comportamento*, a única saída é
     `DROP COLUMN` (item acima) e recomeçar; não há como "des-backfillar" seletivamente.
 
-### `db push` — **é UM só, confirmado**
+### `db push` — **próprio desta feature**
 
-- **Schema (Passo 1):** entra no **mesmo `npx prisma db push` de produção já pendente do
-  login-google** (Fase D). Quando `docs/spec-boas-vindas` e `docs/login-google-fase-e`
-  estiverem na `develop`, `schema.prisma` terá `LinkedAccount` + `password` nullable +
-  `welcomeSeenAt`, e **um** `prisma db push` sincroniza tudo. **Não rodar dois pushes.**
-- **Backfill (Passo 2):** o `prisma db push` **não** roda o `UPDATE` — ele só sincroniza
-  estrutura. O backfill é um passo SQL manual **na mesma janela**, do mesmo `.sql`. Ou seja:
-  um push + um UPDATE manual, juntos. Registrado assim em `docs/specs/INDEX.md`.
+- **Schema (Passo 1):** quando `docs/spec-boas-vindas` chegar na `develop`, `schema.prisma`
+  ganha `welcomeSeenAt`, e é preciso **um `npx prisma db push` de produção só para isso** — o do
+  login-google já foi (2026-09-09) e não sincroniza o que ainda não estava no schema naquele
+  momento. `push` é aditivo aqui (coluna nova nullable), então não é destrutivo, mas **tem que
+  acontecer** antes de o backend novo subir.
+- **Backfill (Passo 2):** o `prisma db push` **não** roda o `UPDATE` — só sincroniza estrutura.
+  O backfill é um passo SQL manual, do mesmo `.sql`, **imediatamente depois** do push, na mesma
+  janela. Sem o backfill, a base inteira vê o guia no próximo login.
+- Registrado em `docs/specs/INDEX.md` → "Pendências de execução humana".
 
 ## Critérios de aceite (testáveis, em BDD)
 
@@ -272,18 +279,19 @@ Loop de verificação por tarefa:
   entrega o mesmo e mais. Dois botões no fim de um guia sem pular é pedir uma decisão no momento
   em que a pessoa só quer chegar.
 - **i18n / tema / A/B de conteúdo.**
-- **Processo (não é critério de aceite):** `npx prisma db push` de produção (execução humana,
-  junto com o do login-google); `/db-change` para o script; atualizar `docs/ARCHITECTURE.md` §5;
-  criar o ponteiro `oratio/docs/specs/boas-vindas.md`; revisar o contrato com o frontend.
+- **Processo (não é critério de aceite):** `npx prisma db push` de produção **próprio** desta
+  feature (execução humana; o do login-google já foi) + o `UPDATE` do backfill logo em seguida;
+  `/db-change` para o script; atualizar `docs/ARCHITECTURE.md` §5; criar o ponteiro
+  `oratio/docs/specs/boas-vindas.md`; revisar o contrato com o frontend.
 
 ## Notas de ambiente
 
 - **1 coluna nova** (`User.welcomeSeenAt`, aditiva) + **1 backfill** (`welcomeSeenAt = now()`
   em toda a tabela `User`). Sem env var nova, sem custo de chamada externa, sem impacto no
   scheduler de notificações.
-- **`db push`: UM só.** O schema entra no `prisma db push` de produção **já pendente** do
-  login-google (Fase D); o backfill é um `UPDATE` manual na **mesma janela**, do mesmo `.sql`.
-  `docs/specs/INDEX.md` registra os três juntos (login-google Fase D + coluna + backfill).
+- **`db push` próprio.** O do login-google já foi rodado (2026-09-09) — a coluna `welcomeSeenAt`
+  **não pega carona** e precisa de um `prisma db push` só dela, seguido do `UPDATE` do backfill
+  na mesma janela. `docs/specs/INDEX.md` → "Pendências de execução humana".
 
 ## Conteúdo do guia — **decidido** (3 páginas)
 
