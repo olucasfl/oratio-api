@@ -298,3 +298,66 @@ O código da Fase D (a CSP do GIS no `vercel.json`) está no `oratio`, branch
 `oratio/docs/tasks/login-google-todo.md` → "Fase D — CSP".
 
 Ver `docs/tasks/login-google-plan.md` → "Fases B / C / D" e `oratio/docs/tasks/login-google-todo.md`.
+
+---
+
+## Fase E — mensageria, sinais de resultado, correções do frontend
+
+Spec: `docs/specs/login-google.md` → "## Fase E". Aprovada 2026-09-09 (E2 = dois booleanos;
+E3 = logout antes de descartar). Backend nas branches `feat/login-google-fase-e` (este repo) e
+`oratio:feat/login-google-fase-e`. Sem schema, sem `db push`. Commit por tarefa.
+
+### Backend (`oratio-api`)
+
+- [x] **E1** — `auth.service.ts` ramo `!user.password` do `login()`: mensagem específica
+      *"Esta conta entra com o Google. Use o botão \"Continuar com o Google\" abaixo."* (401,
+      antes do `bcrypt`). Comentário com o raciocínio da reversão. `auth.service.spec.ts`
+      atualizado (55 verdes) · `npm run build` limpo. **Substitui a A4.**
+      - AC: login por senha em conta `password: null` → 401 com a mensagem nova; `bcrypt` não
+        roda antes (a mensagem exata prova o caminho). ✓
+- [ ] **E2** — `auth.service.ts`: `loginWithGoogle` + `linkGoogleAndIssue` + caminho de criação
+      + `resolveGoogleAfterRace` compõem `{ ...tokens, isNewUser, googleLinkedNow }`.
+      `auth.controller.ts` repassa. `auth.service.spec.ts`: 4 testes `toEqual`→`toMatchObject` +
+      casos. `ARCHITECTURE.md` §5.
+      - AC: sem `User` → `true/false`; `User` sem link → `false/true`; `sub` com link →
+        `false/false`; corrida `P2002` → `isNewUser:false`.
+- [ ] **E7-backend** — só confirmar cobertura (A8 já implementou). `users.service.spec.ts`:
+      casos "`sub` de outra conta" e "`sub` sem `LinkedAccount`" → 400, `user.delete` não roda.
+
+### Frontend (`oratio`)
+
+- [ ] **E1a** — `Login.tsx`: remover o `<p className={styles.googleHint}>` + CSS órfão.
+      `Login.test.tsx`: texto ausente **+** login por senha 401 com a mensagem nova → exibida
+      (`getAuthErrorMessage` repassa mensagem desconhecida verbatim).
+- [ ] **E2-consumo + E3** — `authService.ts`: `loginWithGoogle` retorna
+      `{ tokens, isNewUser, googleLinkedNow }` **sem persistir** (comentário sobre a assimetria
+      em cima de `login()` e `loginWithGoogle()` — `login()` NÃO é refatorado). `Login.tsx`
+      persiste no sucesso. `Register.tsx`: `isNewUser:false` → `logout` (timeout 3s, falha
+      ignorada) + limpa `Authorization` + `AlertModal` "Você já tem conta no Oratio. Entre pela
+      tela de login." → `/login`; `isNewUser:true` → persiste + navega. `api.ts` helper.
+      - AC: `/register` + `isNewUser:false` → nenhum token gravado, `POST /auth/logout` com o
+        `refresh_token`, aviso com caminho pra `/login`. `isNewUser:true` → tokens + navega.
+- [ ] **E4** — `Login.tsx` / `Register.tsx`: toast "Sua conta Google foi conectada à sua conta
+      Oratio." quando `googleLinkedNow`.
+- [ ] **E1b** — nudge dispensável "Defina uma senha em Configurações da conta…" pós-login
+      Google quando `hasPassword: false` (`sessionStorage`, não modal).
+- [ ] **E5 + E6** (tarefa 9a) — `GoogleSignInButton.tsx`: prop `disabled` + overlay/spinner.
+      `Login.tsx` / `Register.tsx`: removem `text=` (default `continue_with`), passam
+      `disabled={loading}`. Testes.
+      - AC: rótulo "Continuar com o Google" nas duas; 2º clique durante `POST /auth/google`
+        bloqueado.
+- [ ] **E7-frontend** (tarefa 9b) — `DeleteAccountModal.tsx` ramo `hasPassword`;
+      `profileService.deleteAccount({ password?, googleCredential? })`; Configurações passa
+      `hasPassword`. Testes: 2 caminhos + 2 falhas.
+      - AC: só-Google → botão Google (não campo senha); reautentica a mesma conta → 200 apagada;
+        reautentica outra conta → 400 não apagada; conta com senha → campo senha, certa 200 /
+        errada 401.
+- [ ] **Docs** — ponteiro `oratio/docs/specs/login-google.md` herda a Fase E;
+      `oratio/docs/tasks/login-google-todo.md` (Fase E + corrige linhas 28/104 do `db push`);
+      `oratio/docs/ARCHITECTURE.md`.
+
+### Checkpoint E — revisão humana (PARAR)
+
+- [ ] `npm test` verde nos dois repos · `build` · `lint` sem regressão
+- [ ] Humano testa no navegador: `/register` repetido; exclusão de conta só-Google (2 caminhos
+      + 2 falhas); toast de auto-ligação; login por senha numa conta só-Google.

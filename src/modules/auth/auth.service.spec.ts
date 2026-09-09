@@ -688,7 +688,7 @@ describe('AuthService', () => {
   });
 
   describe('login — conta só-Google (password: null)', () => {
-    it('rejects password login with the same generic message as a wrong password', async () => {
+    it('rejects password login with a Google-specific 401 message (Fase E / E1)', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-google',
         email: 'g@example.com',
@@ -696,11 +696,16 @@ describe('AuthService', () => {
         emailVerified: true,
       });
 
-      // A mensagem prova que o guard disparou: `bcrypt.compare(x, null)` real
-      // lançaria "data and hash arguments required", não "Invalid credentials".
+      // A mensagem prova que o guard `!user.password` disparou ANTES do bcrypt:
+      // `bcrypt.compare(x, null)` real lançaria "data and hash arguments
+      // required", uma mensagem diferente. (bcrypt não é mockável aqui — é
+      // binding nativo —, então a mensagem exata É a asserção do caminho.)
       await expect(
         service.login('g@example.com', 'anything'),
-      ).rejects.toMatchObject({ message: 'Invalid credentials' });
+      ).rejects.toMatchObject({
+        message:
+          'Esta conta entra com o Google. Use o botão "Continuar com o Google" abaixo.',
+      });
     });
   });
 

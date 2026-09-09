@@ -69,14 +69,22 @@ export class AuthService {
     }
 
     /*
-    Conta só-Google (criada por login social, sem senha). Responde o MESMO
-    401 genérico de "senha errada" — não revela que a conta usa Google, senão
-    vira enumeração de tipo de conta. E `bcrypt.compare(x, null)` lançaria,
-    então precisa barrar aqui, antes. Quem quer entrar por senha define uma
-    via `POST /users/me/set-password` ou pelo "esqueci minha senha".
+    Conta só-Google (criada por login social, sem senha). Responde 401 com
+    mensagem ESPECÍFICA — decisão da Fase E, revertendo o erro genérico da
+    Fase A (spec login-google §"Fase E → E1"). Sim, isso revela que a conta
+    existe e é só-Google; aceito porque:
+      - o app já vaza existência pela MESMA rota ("Please verify your email
+        before logging in" só aparece pra conta existente não-verificada);
+      - o @Throttle(5/60s) do controller limita varredura em massa;
+      - quem bate aqui é quase sempre o dono legítimo que esqueceu o método.
+    `bcrypt.compare(x, null)` lançaria, então isto barra antes, como antes.
+    Quem quer senha entra pelo Google e usa "Definir senha", ou "esqueci
+    minha senha".
     */
     if (!user.password) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(
+        'Esta conta entra com o Google. Use o botão "Continuar com o Google" abaixo.',
+      );
     }
 
     const passwordMatches = await bcrypt.compare(password, user.password);
