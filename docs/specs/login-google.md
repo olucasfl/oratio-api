@@ -1,8 +1,8 @@
 # Spec: login-google — "Entrar com Google"
 
-> Status: em andamento (Fase A no backend — 2026-09-08)
+> Status: em andamento (Fases A–D entregues; **Fase E em rascunho — 2026-09-09**, com 2 questões de design em aberto)
 > Plano: `docs/tasks/login-google-plan.md` · Checklist: `docs/tasks/login-google-todo.md`
-> Frontend pareado: `oratio/docs/specs/login-google.md` (ponteiro)
+> Frontend pareado: `oratio/docs/specs/login-google.md` (ponteiro — precisa herdar a Fase E depois do "ok")
 
 ## Objetivo
 
@@ -73,11 +73,11 @@ pessoa entra por Google mas fica barrada **para sempre** no `login()` (que exige
 
 ### Conta só-Google (sem senha)
 
-- **Login por senha** (`POST /auth/login`) numa conta com `password: null`: responde o mesmo
-  **401 `{ message: "Invalid credentials" }`** genérico de sempre — não revela que a conta é
-  só-Google (mantém a anti-enumeração já existente em `AuthService.login`). O
+- **Login por senha** (`POST /auth/login`) numa conta com `password: null`: **~~responde o mesmo
+  401 `{ message: "Invalid credentials" }` genérico~~ — revisto na Fase E (E1): agora é
+  401 com mensagem específica *"Esta conta entra com o Google…"*.** O
   `bcrypt.compare(password, user.password)` **não pode** receber `null` como hash — o código
-  trata `password == null` como "credencial inválida" antes de chamar o `bcrypt`.
+  trata `password == null` como "credencial inválida" antes de chamar o `bcrypt` (isso não muda).
 - **Recuperação de quem perdeu o acesso à conta Google**: `POST /auth/forgot-password` →
   `POST /auth/reset-password` funciona normalmente e **define** senha mesmo quando não havia
   nenhuma. É o caminho oficial de recuperação (o Google já nos deu `email_verified: true`, o
@@ -287,9 +287,10 @@ registrado em `docs/specs/INDEX.md`.
 
 ### Backend — senha / recuperação
 
-- [x] **Dado** um `User` com `password: null`, **quando** `POST /auth/login` com o e-mail dele e
+- [x] ~~**Dado** um `User` com `password: null`, **quando** `POST /auth/login` com o e-mail dele e
   qualquer senha, **então** 401 com `{ message: "Invalid credentials" }` (idêntico ao de senha
-  errada — sem revelar que é conta Google).
+  errada — sem revelar que é conta Google).~~ **Substituído pelo 1º critério da Fase E** (mensagem
+  específica). O 401 e a checagem antes do `bcrypt` permanecem.
 - [x] **Dado** um `User` com `password: null`, **quando** `POST /auth/forgot-password` com o
   e-mail dele e depois `POST /auth/reset-password` com o token gerado e uma senha nova, **então**
   `POST /auth/login` com essa senha passa a devolver 200, e todas as `RefreshSession` anteriores
@@ -386,12 +387,302 @@ próxima branch.
   "Definir senha" **ou** "Trocar senha" conforme `hasPassword`; mensagens acionáveis do backend
   renderizadas. O fluxo `forgot`→`reset` para conta só-Google (esse **sim** revoga sessões, via
   `resetPassword` existente) já está acessível pela tela `/login`. Testes dos dois lados.
+- **E — Mensageria, sinais de resultado, correções do frontend.** Reverte a anti-enumeração do
+  login (E1), adiciona `isNewUser` / `googleLinkedNow` ao `POST /auth/google` (E2), bloqueio de
+  cadastro repetido (E3), toast de auto-ligação (E4), rótulo do botão (E5), estado de
+  carregamento (E6), e liga o frontend à exclusão de conta só-Google (E7). Ver "## Fase E".
+  **2 decisões (E2, E3) pendentes de "ok".**
 - **D — CSP, deploy, PWA.** 🚧 CSP na branch `oratio:feat/login-google-fase-d`: `script-src`
   `https://accounts.google.com/gsi/client`, `style-src` `.../gsi/style`, `connect-src` e
   `frame-src` a URL-pai `https://accounts.google.com/gsi/` — mais o plano de verificação
   pós-deploy escrito em `oratio/docs/tasks/login-google-todo.md`. `ALLOWED_ORIGINS` conferido,
   inalterado. Humano: `db push` de produção; env vars (Vercel/Render); origens de produção no
   Google Cloud Console; smoke no iPhone com PWA instalado; rodar a verificação pós-deploy.
+
+## Fase E — mensageria, sinais de resultado, e correções do frontend
+
+> Rascunho de 2026-09-09. Não muda a verificação do `id_token`, a resolução de
+> conta nem o schema. É **contrato de resposta + mensagens + frontend**. Duas
+> decisões (E2 e E3) estão em "Questões em aberto" e precisam de "ok".
+
+### Contexto
+
+A Fase A escolheu **erro genérico** no login por senha de conta só-Google (o
+mesmo `401 { message: "Invalid credentials" }` de senha errada) para não revelar
+que a conta existe e usa Google. A Fase E **reverte essa escolha** e adiciona os
+sinais que o frontend precisa para reagir ao desfecho do `POST /auth/google`
+(conta nova × auto-ligação × login recorrente), hoje indistinguíveis. Também
+corrige três defeitos que o teste manual expôs (E5, E6, E7).
+
+### E1 — Login por senha em conta só-Google: 401 com mensagem específica
+
+**Muda:** `AuthService.login`, o ramo `if (!user.password)` (`auth.service.ts:78`).
+
+- **Antes:** `throw new UnauthorizedException('Invalid credentials')`
+- **Depois:** `throw new UnauthorizedException('Esta conta entra com o Google. Use o botão "Continuar com o Google" abaixo.')`
+
+Continua **401** e continua **antes** do `bcrypt.compare` (`compare(x, null)` quebra).
+
+**Raciocínio — por que aceitar o vazamento de existência:**
+
+1. **O app já vaza existência pela mesma rota.** `login()` responde
+   `401 "Please verify your email before logging in"` (`auth.service.ts:89`), e
+   essa mensagem só aparece para uma conta que **existe** e está com e-mail não
+   verificado. Quem quer enumerar já distingue "não existe / senha errada" de
+   "existe, não verificada". A mensagem de conta só-Google entra na **mesma
+   categoria de sinal que já está aberta** — não abre porta nova, só troca ruído
+   por precisão onde antes havia ruído.
+2. **O `@Throttle(5/60s)` (`auth.controller.ts:29`) limita varredura em massa.**
+   Não impede ataque dirigido a um alvo conhecido, mas "baixar a base de e-mails
+   só-Google" fica inviável no ritmo permitido.
+3. **Quem bate nessa mensagem é quase sempre o dono legítimo** que esqueceu qual
+   método usou — voltou depois, digitou e-mail e senha por hábito, e hoje recebe
+   um "Invalid credentials" que não ajuda. O custo de UX recai sobre o usuário
+   real toda vez; o ganho de segurança é marginal dados (1) e (2).
+4. **A recuperação por "Esqueci minha senha" continua genérica.** A superfície
+   que *não* muda é a mais sensível: `forgot-password` (`auth.service.ts:639`)
+   segue respondendo igual exista ou não a conta.
+
+**Consequência (a) — remover o texto fixo de ajuda do `/login`.** O aviso *"Já
+entrou com Google antes? Experimente o botão Entrar com Google."* (`Login.tsx`,
+`styles.googleHint`) existia **por causa** do erro genérico: o backend não podia
+dizer nada, então a tela dizia para todo mundo, o tempo todo. Com E1 o backend
+diz para quem precisa, na hora certa. O texto fixo vira ruído permanente para os
+~99% que entram por senha e não têm conta Google. **Remover** o `<p>` inteiro.
+
+**Consequência (b) — nudge de "Definir senha" DEPOIS do login por Google, não na
+mensagem de erro.** A pessoa que vê o erro de E1 está **deslogada** — não alcança
+Configurações da conta. O caminho para ganhar uma senha é: entrar pelo Google
+(que a mensagem já indica) e, **já autenticada**, receber um aviso **discreto e
+dispensável** sugerindo "Definir senha".
+
+- Gatilho: logou por Google **e** `hasPassword === false` (o `GET /users/me` da
+  Fase C já devolve esse booleano).
+- Forma: banner/toast dispensável (um "x" fecha e não volta na sessão), **nunca**
+  modal bloqueante. É sugestão, não tarefa: quem quer viver só com o Google
+  ignora para sempre.
+- Texto sugerido: *"Dica: defina uma senha em Configurações da conta para também
+  entrar sem o Google."*
+- Persistência: `sessionStorage` basta no v1 (não incomodar na mesma sessão);
+  reaparecer num próximo login é aceitável.
+
+### E2 — `POST /auth/google` sinaliza o desfecho da resolução de conta
+
+**Problema:** hoje os três desfechos de `loginWithGoogle` devolvem **exatamente**
+`{ access_token, refresh_token }`. O frontend não sabe se mostra tela de
+boas-vindas (conta nova), toast de "conta conectada" (auto-ligação) ou nada
+(login recorrente).
+
+**Proposta de contrato (aguarda "ok" — ver "Questões em aberto"):** a resposta
+200 do `POST /auth/google` passa a ser
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<jwt>",
+  "isNewUser": true,
+  "googleLinkedNow": false
+}
+```
+
+| Campo | `true` quando | Consumidor |
+|---|---|---|
+| `isNewUser` | um `User` foi **criado nesta requisição** (passo 3 de `loginWithGoogle`) | tela de boas-vindas (spec `boas-vindas`); redirecionamento do E3 |
+| `googleLinkedNow` | um `LinkedAccount` foi criado nesta requisição para um `User` **que já existia** (passo 2, auto-ligação) | toast do E4 |
+
+Os três desfechos: **conta nova** → `isNewUser:true, googleLinkedNow:false`;
+**auto-ligação** → `false / true`; **login recorrente** (`LinkedAccount` já
+existia) → `false / false`.
+
+- **Por que dois booleanos e não um enum** (`"created" | "linked" | "recurring"`):
+  cada consumidor testa **uma** condição (boas-vindas só olha `isNewUser`; o toast
+  só olha `googleLinkedNow`). Um par de flags evita o frontend ter que conhecer o
+  conjunto fechado de valores, e é aditivo — um provider novo no futuro não muda
+  o shape.
+- **Por que não é vazamento:** o campo só chega **junto com um par de tokens
+  válido**, ou seja, para quem **acabou de provar** que controla aquela conta
+  Google. Não há requisição não autenticada que devolva `isNewUser`.
+- **`POST /auth/login` e `POST /users` não mudam.** O `isNewUser` é específico do
+  fluxo Google. O gatilho de "primeira entrada" para o cadastro por **senha** é
+  decidido na spec `boas-vindas`.
+- O caso de corrida (`resolveGoogleAfterRace`, `auth.service.ts:297`) devolve os
+  flags coerentes com o desfecho real (quase sempre `isNewUser:false` — o `User`
+  foi criado pela requisição concorrente).
+
+### E3 — Cadastro × login com o mesmo e-mail (tela `/register`)
+
+| Situação na tela `/register` | Resultado |
+|---|---|
+| 1ª vez, conta nova (`isNewUser: true`) | entra direto no app (→ boas-vindas) |
+| Pessoa sai e volta | entra pela tela **de login** (fluxo normal, sem bloqueio) |
+| Tenta de novo pela tela **de cadastro** (`isNewUser: false`) | **não entra**; aviso *"Você já tem conta no Oratio. Entre pela tela de login."* + botão para `/login` |
+
+**Por que a tela `/login` NÃO bloqueia nenhum dos três casos:** lá a intenção
+declarada é **entrar**, e entrar é o que acontece — conta nova (raro, mas
+possível pelo botão do `/login`), auto-ligação ou login recorrente. A restrição
+existe **só** no `/register`, onde a ação nomeada é "criar uma conta"; fazer isso
+com uma conta que já existe é a única operação que **mente** sobre o que
+aconteceu. E3 é regra de **frontend** — o backend responde igual nos dois; quem
+decide é a tela, pelo `isNewUser`.
+
+**Detalhe de implementação que não pode passar batido — os tokens órfãos:**
+quando o backend responde, a pessoa **já está autenticada** — `loginWithGoogle`
+sempre chama `generateTokens`, que **cria uma `RefreshSession`** e emite o par.
+No caso "não é conta nova, veio do `/register`", o frontend **precisa descartar
+os tokens** — não gravar no `localStorage` **e** não deixar o
+`api.defaults.headers.Authorization` setado (o `loginWithGoogle` atual, em
+`authService.ts`, faz as duas coisas no sucesso). Se qualquer uma sobrar, a
+pessoa fica logada e o aviso não faz sentido.
+
+**Efeito colateral — a `RefreshSession` órfã** vira um **dispositivo fantasma** em
+`GET /users/me/sessions`.
+
+**Proposta de solução (aguarda "ok" — ver "Questões em aberto"):** o frontend, no
+ramo de descarte, chama **`POST /auth/logout`** com o `refresh_token`
+recém-recebido **antes** de descartá-lo, e só então mostra o aviso.
+
+- **Por que essa e não outra:** `POST /auth/logout` (`auth.controller.ts:68`) já
+  faz **exatamente** o necessário — revoga **uma** `RefreshSession` pelo hash do
+  token, é best-effort e idempotente. Zero mudança de backend, zero contrato
+  novo. A janela em que a sessão fantasma existe é o intervalo entre as duas
+  chamadas (milissegundos).
+- **Detalhe:** o frontend faz o `POST /auth/logout` com um timeout curto (~3s) e
+  **ignora** a falha — um logout pendurado não pode atrasar o aviso "Você já tem
+  conta".
+- **Falha do logout** (offline no instante exato): a sessão fantasma sobrevive
+  até 180 dias. Aceitável porque (a) é o **próprio dispositivo** da pessoa, (b)
+  não carrega privilégio além do que a pessoa já tem, (c) dá para encerrá-la na
+  tela de sessões, (d) é raro.
+- **Alternativa descartada para o v1:** um campo `intent: "register"` no corpo do
+  `POST /auth/google`, com o backend **não** chamando `generateTokens` quando a
+  conta não é nova (devolvendo só `{ isNewUser: false }`). Elimina a sessão
+  fantasma na origem e o round-trip, mas parte o `POST /auth/google` em dois
+  comportamentos, adiciona um ramo no service + testes próprios, e acopla o
+  backend a qual tela chamou. Para o ganho (fechar uma janela de milissegundos +
+  1 request), não compensa. Fica registrado como melhoria possível.
+
+### E4 — Toast de auto-ligação
+
+Quando `googleLinkedNow: true`, o frontend mostra um toast:
+
+> *"Sua conta Google foi conectada à sua conta Oratio."*
+
+**Por que é obrigatório, não enfeite:** a auto-ligação foi a decisão mais
+delicada da feature — ligar silenciosamente a identidade Google a uma conta
+e-mail+senha existente, condicionada só a `email_verified: true`. **Não há tela
+para desvincular no v1** ("Fora de escopo"). Este toast é a **única** chance de a
+pessoa perceber que uma ligação aconteceu e, se indesejada (e-mail comprometido
+no Google, engano), procurar suporte. Sem ele, a ligação é invisível para sempre.
+Aparece uma vez, no login em que `googleLinkedNow` vem `true`. Toast comum, não
+bloqueante.
+
+### E5 — Rótulo do botão do Google
+
+`Register.tsx` passa `text="signup_with"` e `Login.tsx` passa `text="signin_with"`
+ao `GoogleSignInButton` — mas **as duas telas chamam o mesmo endpoint e fazem a
+mesma coisa** (`loginWithGoogle`). "Cadastre-se com o Google" promete um fluxo de
+cadastro que não existe como coisa separada.
+
+**Trocar as duas para `text="continue_with"`** ("Continuar com o Google") — que já
+é o **default** do `GoogleSignInButton` (as telas sobrescreveram sem motivo). O
+ideal é remover a prop nas duas chamadas e deixar o default agir.
+
+### E6 — Estado de carregamento do botão
+
+Entre o clique no botão do Google e a navegação (ou o aviso do E3) não há
+**nenhum** feedback: `handleGoogleCredential` faz `setLoading(true)`, mas o
+`GoogleSignInButton` não recebe nem usa esse estado — o botão do GIS continua
+clicável. Com rede lenta, a pessoa clica de novo → **duas** requisições
+concorrentes → é **exatamente** a corrida que o tratamento de `P2002`
+(`auth.service.ts:248`) existe para segurar. O `P2002` é a rede de segurança, não
+pode ser a única linha de defesa.
+
+- `GoogleSignInButton` passa a aceitar `disabled?: boolean`; quando `true`, cobre
+  o botão do GIS com um overlay que intercepta o clique e mostra um spinner (o
+  iframe do GIS não dá para desabilitar por dentro).
+- `Login.tsx` / `Register.tsx` passam `disabled={loading}`.
+
+### E7 — Excluir conta só-Google: ligar o frontend ao caminho que o backend já tem
+
+**Bug confirmado (teste manual 2026-09-09):** uma conta que entrou por Google
+**não consegue ser excluída pelo app**.
+
+- **Backend:** já resolvido na **A8** (`users.service.ts:428` em diante). Com
+  `user.password` nulo, `deleteAccount` aceita `proof.googleCredential`, revalida
+  por `AuthService.verifyGoogleIdentity`, e exige que `payload.sub` case um
+  `LinkedAccount` (`provider: "google"`) **deste** usuário. Prova ausente / de
+  outra conta Google → **400**, nunca 500.
+- **Frontend:** nunca foi ligado a esse caminho.
+  `profileService.deleteAccount(password)` só monta `{ password }`
+  (`profileService.ts:88`); `DeleteAccountModal` só tem campo de senha.
+
+**Correção (frontend):**
+
+1. `DeleteAccountModal` passa a olhar `hasPassword` (que "Configurações da conta"
+   **já busca e usa** para escolher entre "Definir senha" / "Trocar senha"):
+   - `hasPassword === true` → campo de senha, como hoje.
+   - `hasPassword === false` → botão do Google para **reautenticar**; o
+     `credential` do callback vira a prova.
+2. `profileService.deleteAccount` aceita as duas formas —
+   `deleteAccount({ password })` **ou** `deleteAccount({ googleCredential })` →
+   `DELETE /users/me` com `{ data: { password } }` ou `{ data: { googleCredential } }`.
+   O `DeleteAccountDto` do backend (`{ password?, googleCredential? }`) já aceita
+   os dois; nada muda no backend.
+
+**Raciocínio — por que a exclusão exige reautenticação, e não basta o JWT:** o
+access token prova que **existe uma sessão**, não que **a pessoa certa está ali
+agora**. Um token roubado (XSS, dispositivo destravado, refresh token vazado)
+daria, sozinho, poder de **apagar a conta inteira e o histórico** — sem
+confirmação, sem estorno (`ARCHITECTURE.md` §7). Por isso a exclusão pede uma
+**prova fresca de posse da credencial**: a senha, ou um `id_token` recém-emitido
+pelo Google. É a mesma barreira do `change-password` com a "senha atual". A conta
+só-Google não podia ficar de fora dela só por não ter senha — ficaria mais fácil
+de destruir que as outras, e ainda seria um problema de LGPD (o titular
+**precisa** conseguir apagar os próprios dados). A A8 fechou isso no backend; a
+E7 liga o frontend.
+
+**Falha esperada — `googleCredential` de outra conta.** Se a pessoa reautentica
+com uma conta Google que **não** é a logada no Oratio, o `sub` não casa nenhum
+`LinkedAccount` deste usuário → backend responde **400** e **não apaga nada**.
+Confirmado em `users.service.ts:463` (`if (!link || link.userId !== userId)`).
+
+### Critérios de aceite — Fase E
+
+- [ ] **Dado** um `User` com `password: null`, **quando** `POST /auth/login` com o e-mail dele e qualquer senha, **então** 401 `{ message: "Esta conta entra com o Google. Use o botão \"Continuar com o Google\" abaixo." }` (E1 — **substitui** o critério da Fase A que pedia o 401 genérico).
+- [ ] **Dado** o mesmo cenário, **quando** o login roda, **então** `bcrypt.compare` **não** é chamado (o teste asserta o mock).
+- [ ] **Dado** um `credential` válido de um e-mail **sem** `User`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: true`, `googleLinkedNow: false`.
+- [ ] **Dado** um `credential` válido de um e-mail com `User` e-mail+senha **sem** `LinkedAccount`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: false`, `googleLinkedNow: true`.
+- [ ] **Dado** um `credential` válido cujo `sub` **já tem** `LinkedAccount`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: false`, `googleLinkedNow: false`.
+- [ ] **Dado** o caminho de corrida (`P2002` capturado, re-resolução), **quando** o 2º request conclui, **então** 200 com `isNewUser: false`.
+- [ ] **Dado** a tela `/login` carregada, **então** o texto fixo *"Já entrou com Google antes?…"* **não** aparece mais (E1a).
+- [ ] **Dado** o callback do GIS na `/register` e a resposta `isNewUser: false`, **quando** o fluxo conclui, **então** nenhum token é gravado no `localStorage`, `POST /auth/logout` é chamado com o `refresh_token` recebido, e o aviso *"Você já tem conta no Oratio…"* aparece com um caminho para `/login` (E3).
+- [ ] **Dado** o mesmo callback na `/register` com `isNewUser: true`, **quando** conclui, **então** os tokens são gravados e a navegação vai para a tela de boas-vindas (E3 + spec `boas-vindas`).
+- [ ] **Dado** `googleLinkedNow: true` em qualquer das duas telas, **quando** o login conclui, **então** o toast *"Sua conta Google foi conectada…"* aparece (E4).
+- [ ] **Dado** `Login.tsx` e `Register.tsx`, **então** o `GoogleSignInButton` renderiza com o rótulo "Continuar com o Google" (`continue_with`) nas duas (E5).
+- [ ] **Dado** um `POST /auth/google` em andamento, **quando** o usuário clica no botão do Google de novo, **então** o segundo clique é bloqueado pelo overlay de `disabled` (E6).
+- [ ] **Dado** uma conta só-Google (`hasPassword: false`) autenticada, **quando** abre o `DeleteAccountModal`, **então** vê o botão de reautenticação do Google, não o campo de senha (E7).
+- [ ] **Dado** essa conta, **quando** reautentica pelo Google (mesma conta) e confirma, **então** `DELETE /users/me` é chamado com `{ googleCredential }`, responde 200, conta apagada.
+- [ ] **Dado** essa conta, **quando** reautentica com **outra** conta Google, **então** `DELETE /users/me` → 400, conta **não** apagada, nenhum token limpo (a pessoa continua no app).
+- [ ] **Dado** uma conta com senha (`hasPassword: true`), **quando** abre o modal → campo de senha; senha certa → 200 + apagada; senha errada → 401 + intacta (comportamento atual preservado).
+
+### Plano de testes — Fase E
+
+- **Unitário (backend):** `auth.service.spec.ts` — E1 (mensagem nova, `bcrypt` não
+  chamado); E2 (os três desfechos devolvem os flags certos, incl. o caminho
+  `P2002`). `users.service.spec.ts` — E7 já coberto pela A8 (confirmar os casos
+  "outra conta Google" e "sub sem LinkedAccount").
+- **Unitário (frontend, Vitest, `./api` mockado):** `authService` — `loginWithGoogle`
+  devolve os flags; ramo de descarte do E3 (nenhum token gravado + `POST /auth/logout`
+  chamado com o `refresh_token`). `profileService` — `deleteAccount` monta
+  `{ password }` **ou** `{ googleCredential }`. `Login.test.tsx` / `Register.test.tsx` —
+  texto fixo ausente (E1a), rótulo `continue_with` (E5), botão bloqueado durante
+  `loading` (E6), aviso do E3, toast do E4. `DeleteAccountModal.test.tsx` — ramo
+  `hasPassword` (E7) e os dois jeitos de falhar.
+- **Contrato (`curl`):** `POST /auth/login` numa conta só-Google → 401 com a
+  mensagem de E1. Os flags de E2 exigem um `id_token` real (mesmo procedimento da
+  Fase B).
+- **Manual (humano):** o fluxo `/register` repetido (E3) e a exclusão de conta
+  só-Google ponta a ponta (E7) no navegador.
 
 ## Fora de escopo
 
@@ -471,6 +762,10 @@ próxima branch.
 
 ## Decisões tomadas na aprovação (2026-09-08)
 
+> **Revisão da Fase E (2026-09-09):** a escolha de **erro genérico** no login por senha de conta
+> só-Google (anti-enumeração) foi **revertida** — ver "## Fase E → E1" para o raciocínio. As
+> demais decisões abaixo seguem valendo.
+
 - **`nonce`: cortado.** Do jeito que estava proposto (frontend gera, manda no corpo, backend
   compara com o payload) **não protege**: quem replica a requisição replica corpo e `credential`
   juntos, e os dois continuam batendo entre si. Anti-replay de verdade exigiria o servidor
@@ -492,7 +787,15 @@ Texto do bullet para `ARCHITECTURE.md` §8 (aplicar na Fase A, quando a rota exi
 
 ## Questões em aberto
 
-Nenhuma.
+Duas, ambas da Fase E — o resto da feature não tem pendência de design.
+
+- [ ] **E2 — formato do sinal de desfecho no `POST /auth/google`.** Proposta: dois booleanos no
+  corpo do 200, `isNewUser` e `googleLinkedNow` (raciocínio em "## Fase E → E2"). Alternativa: um
+  enum `accountOutcome: "created" | "linked" | "recurring"`. Precisa de "ok" antes de virar
+  contrato — muda `oratio/src/services/authService.ts` em lockstep.
+- [ ] **E3 — sessão órfã do cadastro repetido.** Proposta: o frontend chama `POST /auth/logout`
+  com o `refresh_token` antes de descartá-lo (raciocínio em "## Fase E → E3"). Alternativa
+  descartada para o v1: `intent: "register"` no corpo do `POST /auth/google`. Precisa de "ok".
 
 ### Resolvida
 
