@@ -455,21 +455,26 @@ dizer nada, então a tela dizia para todo mundo, o tempo todo. Com E1 o backend
 diz para quem precisa, na hora certa. O texto fixo vira ruído permanente para os
 ~99% que entram por senha e não têm conta Google. **Remover** o `<p>` inteiro.
 
-**Consequência (b) — nudge de "Definir senha" DEPOIS do login por Google, não na
-mensagem de erro.** A pessoa que vê o erro de E1 está **deslogada** — não alcança
-Configurações da conta. O caminho para ganhar uma senha é: entrar pelo Google
-(que a mensagem já indica) e, **já autenticada**, receber um aviso **discreto e
-dispensável** sugerindo "Definir senha".
+**Consequência (b) — aviso de "Definir senha" na tela de Perfil, com um ponteiro
+para o botão.** A pessoa que vê o erro de E1 está **deslogada** — não alcança
+Configurações. Depois que ela entra pelo Google, um aviso **de vez em quando**,
+**na tela de Perfil**, sugere definir uma senha — **e mostra onde**.
 
-- Gatilho: logou por Google **e** `hasPassword === false` (o `GET /users/me` da
-  Fase C já devolve esse booleano).
-- Forma: banner/toast dispensável (um "x" fecha e não volta na sessão), **nunca**
-  modal bloqueante. É sugestão, não tarefa: quem quer viver só com o Google
-  ignora para sempre.
-- Texto sugerido: *"Dica: defina uma senha em Configurações da conta para também
-  entrar sem o Google."*
-- Persistência: `sessionStorage` basta no v1 (não incomodar na mesma sessão);
-  reaparecer num próximo login é aceitável.
+- **Gatilho:** abriu o Perfil, `hasPassword === false` (do `GET /users/me`), e o
+  cooldown já passou.
+- **Cadência:** timestamp `set_password_hint_last` no `localStorage`, reaparece a
+  cada **7 dias** (mesma cadência do `NotificationNudge`). Some **para sempre**
+  quando a conta ganha uma senha.
+- **Forma — o ponteiro é o ponto:** a **engrenagem de "Configurações da conta"**
+  no header do Perfil **pulsa**, e um balão ancorado nela diz onde clicar
+  ("Definir senha" leva a `/oratio/profile/settings?senha=1`; "Agora não" fecha).
+  Ao chegar em `AccountSettings` com `?senha=1`, o botão **"Definir senha"** rola
+  até a vista e pulsa. É o caminho inteiro, do Perfil até o botão. **Nunca** modal.
+- Segue o padrão que o app já tem: o coach-mark da engrenagem do Vox
+  (`settingsButtonPulse` + balão) e o realce `?notif=1` do Perfil.
+- **Descartada:** a 1ª versão (`<SetPasswordNudge/>` app-level, barra fina no topo,
+  1× por sessão) — não indicava **onde** definir a senha, que é o que a pessoa
+  não sabe.
 
 ### E2 — `POST /auth/google` sinaliza o desfecho da resolução de conta
 

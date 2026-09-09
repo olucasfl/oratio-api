@@ -341,8 +341,10 @@ E3 = logout antes de descartar). Backend nas branches `feat/login-google-fase-e`
 - [x] **E4** — `utils/flash.ts` + `<FlashToast/>` (montado no App). `googleLinkedNow` → toast
       "Sua conta Google foi conectada à sua conta Oratio." (na `/register`, vira a mensagem do
       `AlertModal`). `oratio` commit `cf1c55b`.
-- [x] **E1b** — `<SetPasswordNudge/>` (barra fina no topo, dispensável por sessão via
-      `sessionStorage`, nunca modal). `oratio` commit `1f0c449`.
+- [x] **E1b** — aviso "Defina uma senha" **no Perfil**, de vez em quando (cooldown 7 dias,
+      `localStorage`) quando `hasPassword: false`: engrenagem de Configurações pulsa + balão
+      apontando; em `AccountSettings` com `?senha=1` o botão "Definir senha" rola e pulsa. Nunca
+      modal. `oratio` commits `1f0c449` (1ª versão) → `89500ea` (redesenho com ponteiro).
 - [x] **E5 + E6** — `GoogleSignInButton` prop `disabled` (camada + spinner); `Login.tsx` /
       `Register.tsx` removem `text=` e passam `disabled={loading}`. `oratio` commit `969920c`.
 - [x] **E7-frontend** — `DeleteAccountModal` ramo `hasPassword`;
