@@ -1,6 +1,6 @@
 # Spec: login-google — "Entrar com Google"
 
-> Status: em andamento (Fases A–D entregues; **Fase E em rascunho — 2026-09-09**, com 2 questões de design em aberto)
+> Status: em andamento (Fases A–D entregues; **Fase E aprovada — 2026-09-09**, sem questões em aberto; falta plano/checklist)
 > Plano: `docs/tasks/login-google-plan.md` · Checklist: `docs/tasks/login-google-todo.md`
 > Frontend pareado: `oratio/docs/specs/login-google.md` (ponteiro — precisa herdar a Fase E depois do "ok")
 
@@ -391,7 +391,8 @@ próxima branch.
   login (E1), adiciona `isNewUser` / `googleLinkedNow` ao `POST /auth/google` (E2), bloqueio de
   cadastro repetido (E3), toast de auto-ligação (E4), rótulo do botão (E5), estado de
   carregamento (E6), e liga o frontend à exclusão de conta só-Google (E7). Ver "## Fase E".
-  **2 decisões (E2, E3) pendentes de "ok".**
+  Aprovada 2026-09-09 (E2 = dois booleanos `isNewUser`/`googleLinkedNow`; E3 = logout antes de
+  descartar).
 - **D — CSP, deploy, PWA.** 🚧 CSP na branch `oratio:feat/login-google-fase-d`: `script-src`
   `https://accounts.google.com/gsi/client`, `style-src` `.../gsi/style`, `connect-src` e
   `frame-src` a URL-pai `https://accounts.google.com/gsi/` — mais o plano de verificação
@@ -401,9 +402,9 @@ próxima branch.
 
 ## Fase E — mensageria, sinais de resultado, e correções do frontend
 
-> Rascunho de 2026-09-09. Não muda a verificação do `id_token`, a resolução de
-> conta nem o schema. É **contrato de resposta + mensagens + frontend**. Duas
-> decisões (E2 e E3) estão em "Questões em aberto" e precisam de "ok".
+> **Aprovada em 2026-09-09** (E2 e E3 decididas — ver abaixo). Não muda a
+> verificação do `id_token`, a resolução de conta nem o schema. É **contrato de
+> resposta + mensagens + frontend**. Falta plano/checklist.
 
 ### Contexto
 
@@ -473,8 +474,8 @@ dispensável** sugerindo "Definir senha".
 boas-vindas (conta nova), toast de "conta conectada" (auto-ligação) ou nada
 (login recorrente).
 
-**Proposta de contrato (aguarda "ok" — ver "Questões em aberto"):** a resposta
-200 do `POST /auth/google` passa a ser
+**Contrato — decidido (2026-09-09):** a resposta 200 do `POST /auth/google` passa
+a ser
 
 ```json
 {
@@ -537,9 +538,9 @@ pessoa fica logada e o aviso não faz sentido.
 **Efeito colateral — a `RefreshSession` órfã** vira um **dispositivo fantasma** em
 `GET /users/me/sessions`.
 
-**Proposta de solução (aguarda "ok" — ver "Questões em aberto"):** o frontend, no
-ramo de descarte, chama **`POST /auth/logout`** com o `refresh_token`
-recém-recebido **antes** de descartá-lo, e só então mostra o aviso.
+**Solução — decidida (2026-09-09):** o frontend, no ramo de descarte, chama
+**`POST /auth/logout`** com o `refresh_token` recém-recebido **antes** de
+descartá-lo, e só então mostra o aviso.
 
 - **Por que essa e não outra:** `POST /auth/logout` (`auth.controller.ts:68`) já
   faz **exatamente** o necessário — revoga **uma** `RefreshSession` pelo hash do
@@ -787,17 +788,28 @@ Texto do bullet para `ARCHITECTURE.md` §8 (aplicar na Fase A, quando a rota exi
 
 ## Questões em aberto
 
-Duas, ambas da Fase E — o resto da feature não tem pendência de design.
-
-- [ ] **E2 — formato do sinal de desfecho no `POST /auth/google`.** Proposta: dois booleanos no
-  corpo do 200, `isNewUser` e `googleLinkedNow` (raciocínio em "## Fase E → E2"). Alternativa: um
-  enum `accountOutcome: "created" | "linked" | "recurring"`. Precisa de "ok" antes de virar
-  contrato — muda `oratio/src/services/authService.ts` em lockstep.
-- [ ] **E3 — sessão órfã do cadastro repetido.** Proposta: o frontend chama `POST /auth/logout`
-  com o `refresh_token` antes de descartá-lo (raciocínio em "## Fase E → E3"). Alternativa
-  descartada para o v1: `intent: "register"` no corpo do `POST /auth/google`. Precisa de "ok".
+Nenhuma.
 
 ### Resolvida
+
+- **E2 — formato do sinal de desfecho no `POST /auth/google`** (2026-09-09). Escolhidos **dois
+  booleanos** no corpo do 200: `isNewUser` (`User` criado nesta requisição) e `googleLinkedNow`
+  (`LinkedAccount` criado nesta requisição para um `User` que já existia). Motivo: cada consumidor
+  testa **uma** condição; é aditivo (um provider novo não muda o shape); e segue a precedência do
+  `showVoxIntro` (booleano) em `getBootstrap`. Enum descartado. Raciocínio completo em
+  "## Fase E → E2". Muda `oratio/src/services/authService.ts` em lockstep.
+- **E3 — sessão órfã do cadastro repetido** (2026-09-09). O frontend chama `POST /auth/logout`
+  com o `refresh_token` **antes** de descartá-lo (e limpa o `Authorization` default; timeout
+  curto, falha ignorada). Motivo: `/auth/logout` já faz exatamente isso, best-effort e
+  idempotente, sem backend novo. `intent: "register"` no corpo do `POST /auth/google` descartado
+  para o v1 (partiria o endpoint em dois comportamentos). Raciocínio em "## Fase E → E3".
+
+- **`DELETE /users/me` numa conta só-Google** (2026-09-09). Escolhida a proposta recomendada:
+  `DeleteAccountDto` → `{ password?, googleCredential? }`; conta com senha usa `password`
+  (inalterado), conta sem senha exige um `googleCredential` fresco verificado por
+  `AuthService.verifyGoogleIdentity` (o mesmo helper do `POST /auth/google`, agora exportado pelo
+  `AuthModule` e consumido pelo `UsersModule`), com `payload.sub` batendo num `LinkedAccount`
+  google deste user. Prova ausente/incorreta → 400. Implementado na A8.
 
 - **`DELETE /users/me` numa conta só-Google** (2026-09-09). Escolhida a proposta recomendada:
   `DeleteAccountDto` → `{ password?, googleCredential? }`; conta com senha usa `password`
