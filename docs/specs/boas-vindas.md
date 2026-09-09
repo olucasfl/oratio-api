@@ -1,6 +1,6 @@
 # Spec: boas-vindas — guia de primeira entrada
 
-> Status: rascunho (2026-09-09)
+> Status: **aprovada** (2026-09-09) — conceito e questões abertas resolvidas; falta plano/checklist
 > Plano: `docs/tasks/boas-vindas-plan.md` · Checklist: `docs/tasks/boas-vindas-todo.md` *(a criar após "aprovada")*
 > Frontend pareado: `oratio/docs/specs/boas-vindas.md` (ponteiro) — **o grosso desta feature é frontend**
 
@@ -142,7 +142,11 @@ Sem fronteira de dia. `welcomeSeenAt` é `DateTime` (instante UTC), só comparad
 
 ## Modelo de dados
 
-### Aditivo
+### Nome do campo — **decidido**
+
+`welcomeSeenAt` (fica ao lado de `voxOnboardingSeenAt`; a simetria se lê sozinha).
+
+### O que é aditivo e o que **não é** — leia com atenção
 
 ```prisma
 model User {
@@ -154,27 +158,45 @@ model User {
 }
 ```
 
-`ALTER TABLE "User" ADD COLUMN "welcomeSeenAt" TIMESTAMP(3);` — aditivo, não-destrutivo,
-não-bloqueante (coluna nova nullable, sem default).
+Tem **duas mudanças**, e elas são de natureza diferente:
 
-### Backfill das contas existentes
+1. **`ALTER TABLE "User" ADD COLUMN "welcomeSeenAt" TIMESTAMP(3);`** — **aditivo**,
+   não-destrutivo, não-bloqueante (coluna nova nullable, sem default). Igual ao padrão do
+   `login-google` (que só criou tabela vazia).
+2. **`UPDATE "User" SET "welcomeSeenAt" = now() WHERE "welcomeSeenAt" IS NULL;`** — o backfill.
+   **Isto escreve em TODA linha da tabela `User`.** Não é "aditivo" no sentido do item 1 — é uma
+   escrita de dados em massa. Precisa de tratamento à parte no script e no push.
 
-Junto com o `ADD COLUMN`, o script faz
-`UPDATE "User" SET "welcomeSeenAt" = now() WHERE "welcomeSeenAt" IS NULL;` **uma vez**, para que
-o guia apareça **só para contas criadas depois** do deploy — não retroativamente para toda a
-base. É a diferença entre "novidade para quem chega" e "todo mundo levou um guia na cara no
-próximo login".
+**Por que o backfill:** sem ele, o guia apareceria **retroativamente para toda a base** no
+próximo login de cada um. Com `welcomeSeenAt = now()` em quem já existe, o guia aparece **só
+para contas criadas depois** do deploy.
 
-### `db push` pendente — **juntar com o do login-google**
+### Requisitos do script `/db-change` (`prisma/db-scripts/2026-09-09-boas-vindas.sql`)
 
-`/db-change` escreve `prisma/db-scripts/2026-09-09-boas-vindas.sql` (apply + backfill +
-rollback comentado). O `npx prisma db push` de produção **entra no mesmo push já pendente do
-login-google (Fase D)** — quando as duas branches estiverem na `develop`, um único
-`prisma db push` aplica o schema inteiro. Registrado assim em `docs/specs/INDEX.md` (um push, não
-dois).
+O `.sql` para revisão humana precisa ter, **em passos numerados e separados**:
 
-- **Rollback:** livre — `ALTER TABLE "User" DROP COLUMN "welcomeSeenAt";`. Ninguém perde a conta;
-  o único efeito é que quem já concluiu o guia o veria **uma vez** de novo.
+- **Passo 0 — contagem antes:** `SELECT count(*) FROM "User";` — para o humano saber quantas
+  linhas o Passo 2 deve afetar.
+- **Passo 1 — `ALTER TABLE ... ADD COLUMN`** (sozinho, não misturado com o UPDATE).
+- **Passo 2 — o `UPDATE` do backfill** (sozinho), seguido de um `SELECT count(*) FROM "User"
+  WHERE "welcomeSeenAt" IS NOT NULL;` para confirmar que bateu a contagem do Passo 0.
+- **Rollback:** documentado assim —
+  - **A coluna:** rollback **livre** — `ALTER TABLE "User" DROP COLUMN "welcomeSeenAt";`.
+    Ninguém perde a conta.
+  - **O backfill:** **não tem volta útil.** Depois de aplicado, **não dá para distinguir** quem
+    foi backfillado (conta antiga) de quem concluiu o guia de verdade — os dois têm
+    `welcomeSeenAt` preenchido. Se precisar reverter o *comportamento*, a única saída é
+    `DROP COLUMN` (item acima) e recomeçar; não há como "des-backfillar" seletivamente.
+
+### `db push` — **é UM só, confirmado**
+
+- **Schema (Passo 1):** entra no **mesmo `npx prisma db push` de produção já pendente do
+  login-google** (Fase D). Quando `docs/spec-boas-vindas` e `docs/login-google-fase-e`
+  estiverem na `develop`, `schema.prisma` terá `LinkedAccount` + `password` nullable +
+  `welcomeSeenAt`, e **um** `prisma db push` sincroniza tudo. **Não rodar dois pushes.**
+- **Backfill (Passo 2):** o `prisma db push` **não** roda o `UPDATE` — ele só sincroniza
+  estrutura. O backfill é um passo SQL manual **na mesma janela**, do mesmo `.sql`. Ou seja:
+  um push + um UPDATE manual, juntos. Registrado assim em `docs/specs/INDEX.md`.
 
 ## Critérios de aceite (testáveis, em BDD)
 
@@ -257,24 +279,27 @@ Loop de verificação por tarefa:
 ## Notas de ambiente
 
 - **1 coluna nova** (`User.welcomeSeenAt`, aditiva) + **1 backfill** (`welcomeSeenAt = now()`
-  nas contas existentes). Sem env var nova, sem custo de chamada externa, sem impacto no
+  em toda a tabela `User`). Sem env var nova, sem custo de chamada externa, sem impacto no
   scheduler de notificações.
-- **`db push`:** entra no mesmo `prisma db push` de produção **já pendente** do login-google
-  (Fase D). Não criar um push separado — `docs/specs/INDEX.md` registra os dois juntos.
+- **`db push`: UM só.** O schema entra no `prisma db push` de produção **já pendente** do
+  login-google (Fase D); o backfill é um `UPDATE` manual na **mesma janela**, do mesmo `.sql`.
+  `docs/specs/INDEX.md` registra os três juntos (login-google Fase D + coluna + backfill).
+
+## Conteúdo do guia — **decidido** (3 páginas)
+
+| Pág. | Título | Ícone (lucide) | Texto |
+|---|---|---|---|
+| 1 | **A Palavra de cada dia** | `Sunrise` | "As leituras da missa, o Evangelho e o Santo do Dia — prontos assim que você abre o app." |
+| 2 | **Sua vida de oração** | `Cross` | "Reze o Terço, faça a Consagração de 33 dias, guarde versículos na Bíblia de Estudo — e acompanhe seu caminho." |
+| 3 | **Vox, para as suas dúvidas** | `Sparkles` | "Pergunte sobre a fé a qualquer hora — sempre fiel ao que a Igreja ensina." Botão: **Começar**. |
+
+- Catecismo, Quaresma de São Miguel, Confissão e Orações avulsas ficam **de fora da tela** — 5
+  segundos por página não comportam a lista inteira, e o trio acima é o que vende o app.
+- **Sem personalização de nome** ("Bem-vindo, Fulano"). O guia é sobre o app, não sobre a
+  pessoa; uma saudação na pág. 1 competiria com a mensagem. (A implementação da UI aplica a
+  skill `frontend-ui-engineering`.)
 
 ## Questões em aberto
 
-- [ ] **Conteúdo das 3 páginas.** Proposta (a partir das áreas do app, seguindo a inclinação do
-  humano — liturgia / núcleo devocional / Vox):
-
-  | Pág. | Título | Ícone (lucide) | Texto |
-  |---|---|---|---|
-  | 1 | **A Palavra de cada dia** | `Sunrise` / `BookOpen` | "As leituras da missa, o Evangelho e o Santo do Dia — prontos assim que você abre o app." |
-  | 2 | **Sua vida de oração** | `Cross` / `Heart` | "Terço, orações para cada momento, a Consagração de 33 dias e a Bíblia de Estudo. Reze e acompanhe seu caminho." |
-  | 3 | **Vox, para as suas dúvidas** | `Sparkles` / `MessagesSquare` | "Pergunte sobre a fé a qualquer hora — sempre fiel ao que a Igreja ensina." Botão: **Começar**. |
-
-  Catecismo, Quaresma de São Miguel, Confissão e Orações avulsas ficam **de fora da tela** (ou
-  citados de passagem na pág. 2 se couber sem poluir) — não é preciso listar todas as áreas.
-  **Precisa de "ok" no texto e nos títulos antes de fechar.**
-- [ ] **Nome do campo:** `welcomeSeenAt` (proposto, paralelo a `voxOnboardingSeenAt`).
-  Alternativas: `onboardedAt`, `welcomeGuideCompletedAt`. Confirmar.
+Nenhuma. (Nome do campo → `welcomeSeenAt`; conteúdo → acima; tratamento do backfill → "Modelo de
+dados".)
