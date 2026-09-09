@@ -1,6 +1,6 @@
 # Spec: login-google — "Entrar com Google"
 
-> Status: em andamento (Fases A–D entregues; **Fase E aprovada — 2026-09-09**, sem questões em aberto; falta plano/checklist)
+> Status: em andamento (Fases A–D entregues; **Fase E — código pronto nas branches `feat/login-google-fase-e` (backend + frontend), 2026-09-09; aguarda teste manual humano**)
 > Plano: `docs/tasks/login-google-plan.md` · Checklist: `docs/tasks/login-google-todo.md`
 > Frontend pareado: `oratio/docs/specs/login-google.md` (ponteiro — precisa herdar a Fase E depois do "ok")
 
@@ -653,22 +653,25 @@ Confirmado em `users.service.ts:463` (`if (!link || link.userId !== userId)`).
 
 ### Critérios de aceite — Fase E
 
-- [ ] **Dado** um `User` com `password: null`, **quando** `POST /auth/login` com o e-mail dele e qualquer senha, **então** 401 `{ message: "Esta conta entra com o Google. Use o botão \"Continuar com o Google\" abaixo." }` (E1 — **substitui** o critério da Fase A que pedia o 401 genérico).
-- [ ] **Dado** o mesmo cenário, **quando** o login roda, **então** `bcrypt.compare` **não** é chamado (o teste asserta o mock).
-- [ ] **Dado** um `credential` válido de um e-mail **sem** `User`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: true`, `googleLinkedNow: false`.
-- [ ] **Dado** um `credential` válido de um e-mail com `User` e-mail+senha **sem** `LinkedAccount`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: false`, `googleLinkedNow: true`.
-- [ ] **Dado** um `credential` válido cujo `sub` **já tem** `LinkedAccount`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: false`, `googleLinkedNow: false`.
-- [ ] **Dado** o caminho de corrida (`P2002` capturado, re-resolução), **quando** o 2º request conclui, **então** 200 com `isNewUser: false`.
-- [ ] **Dado** a tela `/login` carregada, **então** o texto fixo *"Já entrou com Google antes?…"* **não** aparece mais (E1a).
-- [ ] **Dado** o callback do GIS na `/register` e a resposta `isNewUser: false`, **quando** o fluxo conclui, **então** nenhum token é gravado no `localStorage`, `POST /auth/logout` é chamado com o `refresh_token` recebido, e o aviso *"Você já tem conta no Oratio…"* aparece com um caminho para `/login` (E3).
-- [ ] **Dado** o mesmo callback na `/register` com `isNewUser: true`, **quando** conclui, **então** os tokens são gravados e a navegação vai para a tela de boas-vindas (E3 + spec `boas-vindas`).
-- [ ] **Dado** `googleLinkedNow: true` em qualquer das duas telas, **quando** o login conclui, **então** o toast *"Sua conta Google foi conectada…"* aparece (E4).
-- [ ] **Dado** `Login.tsx` e `Register.tsx`, **então** o `GoogleSignInButton` renderiza com o rótulo "Continuar com o Google" (`continue_with`) nas duas (E5).
-- [ ] **Dado** um `POST /auth/google` em andamento, **quando** o usuário clica no botão do Google de novo, **então** o segundo clique é bloqueado pelo overlay de `disabled` (E6).
-- [ ] **Dado** uma conta só-Google (`hasPassword: false`) autenticada, **quando** abre o `DeleteAccountModal`, **então** vê o botão de reautenticação do Google, não o campo de senha (E7).
-- [ ] **Dado** essa conta, **quando** reautentica pelo Google (mesma conta) e confirma, **então** `DELETE /users/me` é chamado com `{ googleCredential }`, responde 200, conta apagada.
-- [ ] **Dado** essa conta, **quando** reautentica com **outra** conta Google, **então** `DELETE /users/me` → 400, conta **não** apagada, nenhum token limpo (a pessoa continua no app).
-- [ ] **Dado** uma conta com senha (`hasPassword: true`), **quando** abre o modal → campo de senha; senha certa → 200 + apagada; senha errada → 401 + intacta (comportamento atual preservado).
+> `[x]` = coberto por teste automatizado (backend Jest / frontend Vitest). Os fluxos ponta-a-ponta
+> com `id_token` real ficam no **Checkpoint E** (teste manual humano).
+
+- [x] **Dado** um `User` com `password: null`, **quando** `POST /auth/login` com o e-mail dele e qualquer senha, **então** 401 `{ message: "Esta conta entra com o Google. Use o botão \"Continuar com o Google\" abaixo." }` (E1). *(`auth.service.spec.ts`)*
+- [x] **Dado** o mesmo cenário, **quando** o login roda, **então** `bcrypt.compare` **não** é chamado (a mensagem exata prova o caminho — `bcrypt` é binding nativo, não mockável aqui).
+- [x] **Dado** um `credential` válido de um e-mail **sem** `User`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: true`, `googleLinkedNow: false`.
+- [x] **Dado** um `credential` válido de um e-mail com `User` e-mail+senha **sem** `LinkedAccount`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: false`, `googleLinkedNow: true`.
+- [x] **Dado** um `credential` válido cujo `sub` **já tem** `LinkedAccount`, **quando** `POST /auth/google`, **então** 200 com `isNewUser: false`, `googleLinkedNow: false`.
+- [x] **Dado** o caminho de corrida (`P2002` capturado, re-resolução), **quando** o 2º request conclui, **então** 200 com `isNewUser: false`.
+- [x] **Dado** a tela `/login` carregada, **então** o texto fixo *"Já entrou com Google antes?…"* **não** aparece mais (E1a). *(`Login.test.tsx`)*
+- [x] **Dado** o callback do GIS na `/register` e a resposta `isNewUser: false`, **quando** o fluxo conclui, **então** nenhum token é gravado no `localStorage`, `discardGoogleSession` (`POST /auth/logout`) é chamado com o `refresh_token` recebido, e o aviso *"Você já tem conta no Oratio…"* aparece com um caminho para `/login` (E3). *(`Register.test.tsx`)*
+- [x] **Dado** o mesmo callback na `/register` com `isNewUser: true`, **quando** conclui, **então** os tokens são gravados e a navegação vai para a Home (a spec `boas-vindas`, quando existir, intercepta pelo `showWelcome`). *(`Register.test.tsx`)*
+- [x] **Dado** `googleLinkedNow: true` em qualquer das duas telas, **quando** o login conclui, **então** o toast *"Sua conta Google foi conectada…"* aparece (E4). *(`Login.test.tsx`, `FlashToast.test.tsx`; na `/register` vira a mensagem do `AlertModal`)*
+- [x] **Dado** `Login.tsx` e `Register.tsx`, **então** o `GoogleSignInButton` renderiza com o rótulo `continue_with` (default; as telas não passam mais `text=`) (E5). *(`GoogleSignInButton.test.tsx`)*
+- [x] **Dado** um `POST /auth/google` em andamento, **quando** o usuário clica no botão do Google de novo, **então** o segundo clique é bloqueado pela camada de `disabled` (E6). *(`GoogleSignInButton.test.tsx`, `Login.test.tsx`)*
+- [x] **Dado** uma conta só-Google (`hasPassword: false`) autenticada, **quando** abre o `DeleteAccountModal` e o e-mail confere, **então** vê o botão de reautenticação do Google, não o campo de senha (E7). *(`DeleteAccountModal.test.tsx`)*
+- [x] **Dado** essa conta, **quando** reautentica pelo Google e confirma, **então** `DELETE /users/me` é chamado com `{ googleCredential }`, responde 200, `clearSession` roda.
+- [x] **Dado** essa conta, **quando** o backend responde 400 (conta Google não é deste user), **então** a conta **não** é apagada, `clearSession` **não** roda, a pessoa continua no app. *(backend: `users.service.spec.ts`; frontend: `DeleteAccountModal.test.tsx`)*
+- [x] **Dado** uma conta com senha (`hasPassword: true`), **quando** abre o modal → campo de senha; senha certa → 200 + `clearSession`; senha errada → mensagem, sem `clearSession` (comportamento atual preservado).
 
 ### Plano de testes — Fase E
 

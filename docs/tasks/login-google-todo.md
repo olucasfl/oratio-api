@@ -328,35 +328,28 @@ E3 = logout antes de descartar). Backend nas branches `feat/login-google-fase-e`
 
 ### Frontend (`oratio`)
 
-- [ ] **E1a** — `Login.tsx`: remover o `<p className={styles.googleHint}>` + CSS órfão.
-      `Login.test.tsx`: texto ausente **+** login por senha 401 com a mensagem nova → exibida
-      (`getAuthErrorMessage` repassa mensagem desconhecida verbatim).
-- [ ] **E2-consumo + E3** — `authService.ts`: `loginWithGoogle` retorna
-      `{ tokens, isNewUser, googleLinkedNow }` **sem persistir** (comentário sobre a assimetria
-      em cima de `login()` e `loginWithGoogle()` — `login()` NÃO é refatorado). `Login.tsx`
-      persiste no sucesso. `Register.tsx`: `isNewUser:false` → `logout` (timeout 3s, falha
-      ignorada) + limpa `Authorization` + `AlertModal` "Você já tem conta no Oratio. Entre pela
-      tela de login." → `/login`; `isNewUser:true` → persiste + navega. `api.ts` helper.
-      - AC: `/register` + `isNewUser:false` → nenhum token gravado, `POST /auth/logout` com o
-        `refresh_token`, aviso com caminho pra `/login`. `isNewUser:true` → tokens + navega.
-- [ ] **E4** — `Login.tsx` / `Register.tsx`: toast "Sua conta Google foi conectada à sua conta
-      Oratio." quando `googleLinkedNow`.
-- [ ] **E1b** — nudge dispensável "Defina uma senha em Configurações da conta…" pós-login
-      Google quando `hasPassword: false` (`sessionStorage`, não modal).
-- [ ] **E5 + E6** (tarefa 9a) — `GoogleSignInButton.tsx`: prop `disabled` + overlay/spinner.
-      `Login.tsx` / `Register.tsx`: removem `text=` (default `continue_with`), passam
-      `disabled={loading}`. Testes.
-      - AC: rótulo "Continuar com o Google" nas duas; 2º clique durante `POST /auth/google`
-        bloqueado.
-- [ ] **E7-frontend** (tarefa 9b) — `DeleteAccountModal.tsx` ramo `hasPassword`;
-      `profileService.deleteAccount({ password?, googleCredential? })`; Configurações passa
-      `hasPassword`. Testes: 2 caminhos + 2 falhas.
-      - AC: só-Google → botão Google (não campo senha); reautentica a mesma conta → 200 apagada;
-        reautentica outra conta → 400 não apagada; conta com senha → campo senha, certa 200 /
-        errada 401.
-- [ ] **Docs** — ponteiro `oratio/docs/specs/login-google.md` herda a Fase E;
-      `oratio/docs/tasks/login-google-todo.md` (Fase E + corrige linhas 28/104 do `db push`);
-      `oratio/docs/ARCHITECTURE.md`.
+- [x] **E1a** — `Login.tsx`: `<p className={styles.googleHint}>` + CSS removidos.
+      `Login.test.tsx`: texto ausente **+** login por senha 401 com a mensagem nova → exibida.
+      `oratio` commit `dae6cc3`.
+- [x] **E2-consumo + E3** — `authService.loginWithGoogle` retorna
+      `{ tokens, isNewUser, googleLinkedNow }` **sem persistir** (comentário sobre a assimetria;
+      `login()` intacto). `api.ts`: `persistSession` / `clearAuthHeader`.
+      `authService.discardGoogleSession` (POST /auth/logout, timeout 3s, best-effort).
+      `Login.tsx` persiste nos 3 desfechos; `Register.tsx` `isNewUser:false` → descarta +
+      `discardGoogleSession` + `AlertModal` → `/login`; `isNewUser:true` → persiste + Home.
+      `oratio` commit `b66ae11`.
+- [x] **E4** — `utils/flash.ts` + `<FlashToast/>` (montado no App). `googleLinkedNow` → toast
+      "Sua conta Google foi conectada à sua conta Oratio." (na `/register`, vira a mensagem do
+      `AlertModal`). `oratio` commit `cf1c55b`.
+- [x] **E1b** — `<SetPasswordNudge/>` (barra fina no topo, dispensável por sessão via
+      `sessionStorage`, nunca modal). `oratio` commit `1f0c449`.
+- [x] **E5 + E6** — `GoogleSignInButton` prop `disabled` (camada + spinner); `Login.tsx` /
+      `Register.tsx` removem `text=` e passam `disabled={loading}`. `oratio` commit `969920c`.
+- [x] **E7-frontend** — `DeleteAccountModal` ramo `hasPassword`;
+      `profileService.deleteAccount({ password?, googleCredential? })`; `Profile.tsx` passa
+      `hasPassword`. Testes: 2 caminhos + 2 falhas. `oratio` commit `c646bd6`.
+- [x] **Docs** — ponteiro `oratio/docs/specs/login-google.md`, `oratio/docs/tasks/login-google-todo.md`
+      (Fase E + premissa do `db push` corrigida), `oratio/docs/ARCHITECTURE.md`. `oratio` commit `298d3e7`.
 
 ### Checkpoint E — revisão humana (PARAR)
 
