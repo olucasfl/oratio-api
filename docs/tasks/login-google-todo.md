@@ -287,9 +287,9 @@ Sem código de backend. O que este repo precisa conferir/entregar:
       frontend (`oratio-phi.vercel.app` / `localhost:5173`) que já está na allowlist. Nenhuma
       origem nova. *(Conferido 2026-09-09.)*
 - [ ] **Humano:** `GOOGLE_CLIENT_ID` nas env vars do Render (= `VITE_GOOGLE_CLIENT_ID` da Vercel).
-- [ ] **Humano:** `npx prisma db push && npx prisma generate` em **produção** — script em
-      `prisma/db-scripts/2026-09-08-login-google.sql`. Sem isso os caminhos de auto-ligação /
-      conta só-Google / `set-password` / `deleteAccount` só-Google respondem 500 em produção.
+- [x] **Humano:** `npx prisma db push` em **produção** — **feito em 2026-09-09** (Supabase;
+      "Your database is now in sync with your Prisma schema"). `LinkedAccount` + `password`
+      nullable em produção. Script `prisma/db-scripts/2026-09-08-login-google.sql`.
 - [ ] **Humano:** cliente OAuth "Web application" + tela de consentimento no Google Cloud Console
       (ver "Notas de ambiente" na spec).
 
