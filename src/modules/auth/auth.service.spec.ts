@@ -688,7 +688,7 @@ describe('AuthService', () => {
   });
 
   describe('login — conta só-Google (password: null)', () => {
-    it('rejects password login with the same generic message as a wrong password', async () => {
+    it('rejects password login with a Google-specific 401 message (Fase E / E1)', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-google',
         email: 'g@example.com',
@@ -696,11 +696,16 @@ describe('AuthService', () => {
         emailVerified: true,
       });
 
-      // A mensagem prova que o guard disparou: `bcrypt.compare(x, null)` real
-      // lançaria "data and hash arguments required", não "Invalid credentials".
+      // A mensagem prova que o guard `!user.password` disparou ANTES do bcrypt:
+      // `bcrypt.compare(x, null)` real lançaria "data and hash arguments
+      // required", uma mensagem diferente. (bcrypt não é mockável aqui — é
+      // binding nativo —, então a mensagem exata É a asserção do caminho.)
       await expect(
         service.login('g@example.com', 'anything'),
-      ).rejects.toMatchObject({ message: 'Invalid credentials' });
+      ).rejects.toMatchObject({
+        message:
+          'Esta conta entra com o Google. Use o botão "Continuar com o Google" abaixo.',
+      });
     });
   });
 
@@ -796,9 +801,12 @@ describe('AuthService', () => {
 
       const result = await service.loginWithGoogle(validCredential);
 
+      // login recorrente (E2): o vínculo já existia -> os dois flags false
       expect(result).toEqual({
         access_token: 'access-token',
         refresh_token: 'refresh-token',
+        isNewUser: false,
+        googleLinkedNow: false,
       });
       expect(prisma.user.create).not.toHaveBeenCalled();
       expect(prisma.linkedAccount.create).not.toHaveBeenCalled();
@@ -814,6 +822,8 @@ describe('AuthService', () => {
       const result = await service.loginWithGoogle(validCredential);
 
       expect(result.access_token).toBe('access-token');
+      // cadastro novo via Google (E2)
+      expect(result).toMatchObject({ isNewUser: true, googleLinkedNow: false });
 
       const userData = prisma.user.create.mock.calls[0][0].data;
       expect(userData).toMatchObject({
@@ -847,6 +857,8 @@ describe('AuthService', () => {
       const result = await service.loginWithGoogle(validCredential);
 
       expect(result.access_token).toBe('access-token');
+      // auto-ligação (E2): User já existia, vínculo criado agora
+      expect(result).toMatchObject({ isNewUser: false, googleLinkedNow: true });
       expect(prisma.user.create).not.toHaveBeenCalled();
       // auto-link não mexe em password/name -> nenhum update (emailVerified já true)
       expect(prisma.user.update).not.toHaveBeenCalled();
@@ -892,9 +904,13 @@ describe('AuthService', () => {
 
       const result = await service.loginWithGoogle(validCredential);
 
+      // corrida (E2): o vínculo do vencedor foi encontrado na re-resolução,
+      // esta requisição não criou nada -> isNewUser false
       expect(result).toEqual({
         access_token: 'access-token',
         refresh_token: 'refresh-token',
+        isNewUser: false,
+        googleLinkedNow: false,
       });
     });
 

@@ -287,9 +287,9 @@ Sem código de backend. O que este repo precisa conferir/entregar:
       frontend (`oratio-phi.vercel.app` / `localhost:5173`) que já está na allowlist. Nenhuma
       origem nova. *(Conferido 2026-09-09.)*
 - [ ] **Humano:** `GOOGLE_CLIENT_ID` nas env vars do Render (= `VITE_GOOGLE_CLIENT_ID` da Vercel).
-- [ ] **Humano:** `npx prisma db push && npx prisma generate` em **produção** — script em
-      `prisma/db-scripts/2026-09-08-login-google.sql`. Sem isso os caminhos de auto-ligação /
-      conta só-Google / `set-password` / `deleteAccount` só-Google respondem 500 em produção.
+- [x] **Humano:** `npx prisma db push` em **produção** — **feito em 2026-09-09** (Supabase;
+      "Your database is now in sync with your Prisma schema"). `LinkedAccount` + `password`
+      nullable em produção. Script `prisma/db-scripts/2026-09-08-login-google.sql`.
 - [ ] **Humano:** cliente OAuth "Web application" + tela de consentimento no Google Cloud Console
       (ver "Notas de ambiente" na spec).
 
@@ -298,3 +298,63 @@ O código da Fase D (a CSP do GIS no `vercel.json`) está no `oratio`, branch
 `oratio/docs/tasks/login-google-todo.md` → "Fase D — CSP".
 
 Ver `docs/tasks/login-google-plan.md` → "Fases B / C / D" e `oratio/docs/tasks/login-google-todo.md`.
+
+---
+
+## Fase E — mensageria, sinais de resultado, correções do frontend
+
+Spec: `docs/specs/login-google.md` → "## Fase E". Aprovada 2026-09-09 (E2 = dois booleanos;
+E3 = logout antes de descartar). Backend nas branches `feat/login-google-fase-e` (este repo) e
+`oratio:feat/login-google-fase-e`. Sem schema, sem `db push`. Commit por tarefa.
+
+### Backend (`oratio-api`)
+
+- [x] **E1** — `auth.service.ts` ramo `!user.password` do `login()`: mensagem específica
+      *"Esta conta entra com o Google. Use o botão \"Continuar com o Google\" abaixo."* (401,
+      antes do `bcrypt`). Comentário com o raciocínio da reversão. `auth.service.spec.ts`
+      atualizado (55 verdes) · `npm run build` limpo. **Substitui a A4.**
+      - AC: login por senha em conta `password: null` → 401 com a mensagem nova; `bcrypt` não
+        roda antes (a mensagem exata prova o caminho). ✓
+- [x] **E2** — `auth.service.ts`: interface `GoogleLoginResult` + helper `withGoogleFlags`;
+      `loginWithGoogle` / `linkGoogleAndIssue` / caminho de criação / `resolveGoogleAfterRace`
+      compõem `{ ...tokens, isNewUser, googleLinkedNow }`. `auth.controller.ts` já repassa o
+      objeto inteiro (sem mudança). `auth.service.spec.ts`: os 4 testes cobrem os 4 desfechos.
+      `ARCHITECTURE.md` §5 (novo shape + a reversão do E1). 842 testes verdes · build limpo.
+      - AC: sem `User` → `true/false` ✓; `User` sem link → `false/true` ✓; `sub` com link →
+        `false/false` ✓; corrida `P2002` → `isNewUser:false` ✓.
+- [x] **E7-backend** — A8 já implementou o service. `users.service.spec.ts`: o caso "`sub` sem
+      `LinkedAccount`" já existia; **adicionado** o caso "`sub` casa um `LinkedAccount` de OUTRO
+      user" → 400, `user.delete` não roda. 76 testes de `users.service` verdes.
+
+### Frontend (`oratio`)
+
+- [x] **E1a** — `Login.tsx`: `<p className={styles.googleHint}>` + CSS removidos.
+      `Login.test.tsx`: texto ausente **+** login por senha 401 com a mensagem nova → exibida.
+      `oratio` commit `dae6cc3`.
+- [x] **E2-consumo + E3** — `authService.loginWithGoogle` retorna
+      `{ tokens, isNewUser, googleLinkedNow }` **sem persistir** (comentário sobre a assimetria;
+      `login()` intacto). `api.ts`: `persistSession` / `clearAuthHeader`.
+      `authService.discardGoogleSession` (POST /auth/logout, timeout 3s, best-effort).
+      `Login.tsx` persiste nos 3 desfechos; `Register.tsx` `isNewUser:false` → descarta +
+      `discardGoogleSession` + `AlertModal` → `/login`; `isNewUser:true` → persiste + Home.
+      `oratio` commit `b66ae11`.
+- [x] **E4** — `utils/flash.ts` + `<FlashToast/>` (montado no App). `googleLinkedNow` → toast
+      "Sua conta Google foi conectada à sua conta Oratio." (na `/register`, vira a mensagem do
+      `AlertModal`). `oratio` commit `cf1c55b`.
+- [x] **E1b** — aviso "Defina uma senha" **no Perfil**, de vez em quando (cooldown 7 dias,
+      `localStorage`) quando `hasPassword: false`: engrenagem de Configurações pulsa + balão
+      apontando; em `AccountSettings` com `?senha=1` o botão "Definir senha" rola e pulsa. Nunca
+      modal. `oratio` commits `1f0c449` (1ª versão) → `89500ea` (redesenho com ponteiro).
+- [x] **E5 + E6** — `GoogleSignInButton` prop `disabled` (camada + spinner); `Login.tsx` /
+      `Register.tsx` removem `text=` e passam `disabled={loading}`. `oratio` commit `969920c`.
+- [x] **E7-frontend** — `DeleteAccountModal` ramo `hasPassword`;
+      `profileService.deleteAccount({ password?, googleCredential? })`; `Profile.tsx` passa
+      `hasPassword`. Testes: 2 caminhos + 2 falhas. `oratio` commit `c646bd6`.
+- [x] **Docs** — ponteiro `oratio/docs/specs/login-google.md`, `oratio/docs/tasks/login-google-todo.md`
+      (Fase E + premissa do `db push` corrigida), `oratio/docs/ARCHITECTURE.md`. `oratio` commit `298d3e7`.
+
+### Checkpoint E — revisão humana (PARAR)
+
+- [ ] `npm test` verde nos dois repos · `build` · `lint` sem regressão
+- [ ] Humano testa no navegador: `/register` repetido; exclusão de conta só-Google (2 caminhos
+      + 2 falhas); toast de auto-ligação; login por senha numa conta só-Google.
