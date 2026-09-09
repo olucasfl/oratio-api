@@ -9,7 +9,8 @@ no mesmo commit — e `/docs-sync` confere se ela bate com a realidade.
 | Reformulação das notificações | — | `tasks/notifications-plan.md` | `tasks/notifications-todo.md` | `oratio/docs/tasks/notifications.md` (ponteiro) | ✅ concluída (Fases 1–5) |
 | Perfis de resposta do VoxAI | — *(não precisa: já entregue)* | `tasks/vox-profiles-plan.md` | `tasks/vox-profiles-todo.md` | `oratio/docs/tasks/vox-profiles-todo.md` | ✅ **em produção** (`main`: 2 campos no schema, 6 perfis com `systemAppend`, 3 rotas; `db push` aplicado) |
 | Bíblia de Estudo | — *(não precisa: já entregue)* | `tasks/biblia-plan.md` | `tasks/biblia-todo.md` | `oratio/docs/tasks/biblia-*.md` | ✅ **em produção** (B1–B3 na `main`; `npx jest bible` → 4 suítes, 39 testes verdes) |
-| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 Fases A–D com código na `develop` dos dois repos (Fase D / CSP do GIS **já mergeada** no `oratio`, commit `946cfac`). **Fase E aprovada** (`docs/login-google-fase-e`): reverte a anti-enumeração do login, adiciona `isNewUser`/`googleLinkedNow` ao `POST /auth/google`, bloqueio de cadastro repetido, toast de auto-ligação, rótulo do botão, loading state, e liga o frontend à exclusão de conta só-Google. Falta plano/checklist. Pendências humanas: env vars Vercel/Render, cliente OAuth no Google Cloud Console, teste manual + verificação pós-deploy da CSP. **`db push` de produção — FEITO em 2026-09-09** (Supabase; `LinkedAccount` + `password` nullable em produção). |
+| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 **Fases A–E na `develop`** dos dois repos. Fase E (2026-09-09): reverte a anti-enumeração do login, `isNewUser`/`googleLinkedNow` no `POST /auth/google`, bloqueio de cadastro repetido, toast de auto-ligação, rótulo do botão, loading state, exclusão de conta só-Google, aviso "Defina uma senha" no Perfil. **⚠️ NÃO pronta pra `main`: BUG-E1 de CSS em aberto** (balão do aviso "Defina uma senha" recortado no desktop — ver `specs/login-google.md` → "Fase E → Bugs conhecidos"). Pendências humanas: env vars Vercel/Render, cliente OAuth no Google Cloud Console, teste manual + verificação pós-deploy da CSP. `db push` de produção FEITO (2026-09-09). |
+| Prova de identidade (reautenticação p/ operações sensíveis) | `specs/prova-identidade.md` | *(a criar)* | *(a criar)* | `oratio/docs/specs/prova-identidade.md` (ponteiro, a criar) | 📝 **rascunho** — spec spawned do teste da Fase E. Uma causa (o backend trata a senha como prova única) → dois sintomas: (1) não dá pra excluir conta com o Google se você tem senha; (2) não há "esqueci minha senha atual" dentro do app. Primitiva `assertFreshProof` (senha **ou** Google fresco). Sem schema, sem `db push`. 2 questões abertas (spec própria × Fase F; rota de forgot-self). |
 
 ## Legenda de status
 
@@ -43,6 +44,10 @@ listada é tão ruim quanto pendência não registrada.**
   de valores em `specs/login-google.md` → "Notas de ambiente".
 - **login-google** — verificação pós-deploy da CSP do GIS (console do navegador no app da Vercel)
   + smoke do PWA no iPhone.
+- **login-google Fase E** — **corrigir o BUG-E1 de CSS** (balão do aviso "Defina uma senha"
+  recortado no desktop) **antes** de a Fase E ir pra `main`. Detalhe e correção proposta em
+  `specs/login-google.md` → "Fase E → Bugs conhecidos". É código, não deploy — mas está listado
+  aqui porque bloqueia a promoção pra `main`.
 
 O `db push` de produção do **login-google** foi feito em 2026-09-09 (Supabase; `LinkedAccount`
 + `password` nullable). O `db push` do VoxAI e o aceite doutrinário dos perfis também já haviam
