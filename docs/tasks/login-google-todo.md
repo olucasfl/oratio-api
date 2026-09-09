@@ -279,6 +279,22 @@ usa pra mostrar "Definir senha" **ou** "Trocar senha".
 **Arquivos:** `users.service.ts`, `users.service.spec.ts`, `docs/ARCHITECTURE.md` §5 ·
 **Escopo:** XS · **Entregue na branch** `feat/login-google-c`
 
-## Fase D — CSP, deploy, PWA  *(detalhar quando chegar — checklist em `oratio/`)*
+## Fase D — CSP, deploy, PWA
+
+Sem código de backend. O que este repo precisa conferir/entregar:
+
+- [x] **`ALLOWED_ORIGINS` (`main.ts`) não muda** — o `POST /auth/google` sai da mesma origem de
+      frontend (`oratio-phi.vercel.app` / `localhost:5173`) que já está na allowlist. Nenhuma
+      origem nova. *(Conferido 2026-09-09.)*
+- [ ] **Humano:** `GOOGLE_CLIENT_ID` nas env vars do Render (= `VITE_GOOGLE_CLIENT_ID` da Vercel).
+- [ ] **Humano:** `npx prisma db push && npx prisma generate` em **produção** — script em
+      `prisma/db-scripts/2026-09-08-login-google.sql`. Sem isso os caminhos de auto-ligação /
+      conta só-Google / `set-password` / `deleteAccount` só-Google respondem 500 em produção.
+- [ ] **Humano:** cliente OAuth "Web application" + tela de consentimento no Google Cloud Console
+      (ver "Notas de ambiente" na spec).
+
+O código da Fase D (a CSP do GIS no `vercel.json`) está no `oratio`, branch
+`feat/login-google-fase-d`, com o **plano de verificação pós-deploy** em
+`oratio/docs/tasks/login-google-todo.md` → "Fase D — CSP".
 
 Ver `docs/tasks/login-google-plan.md` → "Fases B / C / D" e `oratio/docs/tasks/login-google-todo.md`.
