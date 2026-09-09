@@ -198,6 +198,11 @@ Sem fronteira de dia nova. Expiração do `id_token` é `exp` (epoch UTC), verif
 - Texto **fixo e incondicional** abaixo da área de erro da tela de login:
   *"Já entrou com Google antes? Experimente o botão Entrar com Google."* — aparece em todo erro
   de senha, não é condicional ao tipo de conta (senão vaza que a conta é só-Google).
+- `GET /users/me` passa a devolver **`hasPassword: boolean`**. Em "Configurações da conta" o
+  frontend mostra **"Definir senha"** (chama `POST /users/me/set-password`) quando
+  `hasPassword === false` e **"Trocar senha"** (chama `POST /users/me/change-password`) quando
+  `true` — nunca os dois. `SetPasswordModal` é o `ChangePasswordModal` sem o campo "senha atual"
+  e sem a mensagem de sessões revogadas.
 
 ## Modelo de dados
 
@@ -300,6 +305,9 @@ registrado em `docs/specs/INDEX.md`.
 - [x] **Dado** nenhuma credencial (`Authorization` ausente), **quando**
   `POST /users/me/set-password`, **então** 401.
 - [x] **Dado** `password` != `confirmPassword`, **quando** `POST /users/me/set-password`, **então** 400.
+- [x] **Dado** um `User` com `password: null`, **quando** `GET /users/me`, **então** o corpo traz
+  `hasPassword: false`; **dado** um `User` com senha, `hasPassword: true` — e o hash **nunca**
+  aparece no corpo (o teste asserta `expect(result).not.toHaveProperty('password')`).
 - [x] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
   `POST /users/me/change-password`, **então** 409 `{ message: "Esta conta não tem senha. ..." }`
   e o `bcrypt.compare` **não** é chamado com `null` (o teste asserta o mock).
@@ -372,9 +380,12 @@ próxima branch.
 - **B — Frontend, botão e fluxo.** Script GIS, botão em `/login` e `/register`, `ux_mode: popup`,
   `authService.loginWithGoogle`, texto fixo de ajuda. Humano testa no navegador (fluxo real
   ponta a ponta, incl. os caminhos felizes de curl da Fase A com um token de verdade).
-- **C — Bordas + definir senha.** `POST /users/me/set-password` (sem tocar em `RefreshSession`) +
-  UI nas configurações; fluxo `forgot`→`reset` para conta só-Google (esse **sim** revoga
-  sessões, via `resetPassword` existente); mensagens acionáveis. Testes.
+- **C — Bordas + definir senha.** Backend: `POST /users/me/set-password` (feito na Fase A/A5) +
+  `GET /users/me` passa a devolver `hasPassword`. Frontend: `authService`/`profileService`
+  ganham `setPassword`; `SetPasswordModal`; "Configurações da conta" busca o perfil e mostra
+  "Definir senha" **ou** "Trocar senha" conforme `hasPassword`; mensagens acionáveis do backend
+  renderizadas. O fluxo `forgot`→`reset` para conta só-Google (esse **sim** revoga sessões, via
+  `resetPassword` existente) já está acessível pela tela `/login`. Testes dos dois lados.
 - **D — CSP, deploy, PWA.** Entradas de CSP no `vercel.json` do frontend + plano de verificação
   pós-deploy; `db push` de produção (humano); origens de produção no Google Cloud Console
   (humano); smoke no iPhone com PWA instalado (humano).
