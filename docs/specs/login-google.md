@@ -386,9 +386,12 @@ próxima branch.
   "Definir senha" **ou** "Trocar senha" conforme `hasPassword`; mensagens acionáveis do backend
   renderizadas. O fluxo `forgot`→`reset` para conta só-Google (esse **sim** revoga sessões, via
   `resetPassword` existente) já está acessível pela tela `/login`. Testes dos dois lados.
-- **D — CSP, deploy, PWA.** Entradas de CSP no `vercel.json` do frontend + plano de verificação
-  pós-deploy; `db push` de produção (humano); origens de produção no Google Cloud Console
-  (humano); smoke no iPhone com PWA instalado (humano).
+- **D — CSP, deploy, PWA.** 🚧 CSP na branch `oratio:feat/login-google-fase-d`: `script-src`
+  `https://accounts.google.com/gsi/client`, `style-src` `.../gsi/style`, `connect-src` e
+  `frame-src` a URL-pai `https://accounts.google.com/gsi/` — mais o plano de verificação
+  pós-deploy escrito em `oratio/docs/tasks/login-google-todo.md`. `ALLOWED_ORIGINS` conferido,
+  inalterado. Humano: `db push` de produção; env vars (Vercel/Render); origens de produção no
+  Google Cloud Console; smoke no iPhone com PWA instalado; rodar a verificação pós-deploy.
 
 ## Fora de escopo
 

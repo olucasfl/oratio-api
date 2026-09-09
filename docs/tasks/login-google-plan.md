@@ -194,20 +194,24 @@ item a item em `docs/tasks/login-google-todo.md`.
       só-Google) com o resultado esperado de cada
 - [ ] **Não seguir para a Fase B sem retorno do humano**
 
-## Fases B / C / D (esqueleto — detalhar quando chegar)
+## Fases B / C / D
 
-- **Fase B — Frontend, botão e fluxo** (`oratio`). Script GIS, `initialize`/`renderButton` em
-  `/login` e `/register`, `ux_mode: "popup"`, `use_fedcm_for_button: true`,
-  `authService.loginWithGoogle(credential)`, texto fixo de ajuda no login. Teste Vitest com
-  `./api` mockado. Humano testa o fluxo real no navegador (precisa do cliente OAuth criado no
-  Google Cloud Console + `VITE_GOOGLE_CLIENT_ID`).
-- **Fase C — Bordas + definir senha.** UI de "definir senha" nas configurações (consome
-  `POST /users/me/set-password`); fluxo `forgot`→`reset` para conta só-Google no frontend;
-  mensagens acionáveis renderizadas. Testes dos dois lados.
-- **Fase D — CSP, deploy, PWA.** Entradas GIS na CSP do `oratio/vercel.json` + plano de
-  verificação pós-deploy escrito na tarefa; `GOOGLE_CLIENT_ID` na Render e `VITE_GOOGLE_CLIENT_ID`
-  na Vercel (humano); `npx prisma db push` de produção (humano); smoke no iPhone com PWA
-  instalado (humano); confirmar `ALLOWED_ORIGINS` inalterado.
+- **Fase B — Frontend, botão e fluxo** (`oratio`). ✅ **na `develop` do `oratio`.** Script GIS,
+  `initialize`/`renderButton` em `/login` e `/register`, `ux_mode: "popup"`,
+  `use_fedcm_for_button: true`, `authService.loginWithGoogle(credential)`, texto fixo de ajuda.
+  Testes Vitest com `./api` mockado. Falta o teste real no navegador (humano, precisa do cliente
+  OAuth + `VITE_GOOGLE_CLIENT_ID`).
+- **Fase C — Bordas + definir senha.** ✅ **na `develop` dos dois repos.** Backend: `GET /users/me`
+  devolve `hasPassword` (C1). Frontend: `profileService.setPassword` → `POST /users/me/set-password`,
+  `SetPasswordModal`, `AccountSettings` mostra "Definir senha" **ou** "Trocar senha" conforme
+  `hasPassword`. `forgot`→`reset` para conta só-Google já acessível pela `/login` (Fase B).
+- **Fase D — CSP, deploy, PWA.** 🚧 **CSP na branch `oratio:feat/login-google-fase-d`.** Quatro
+  fontes do GIS na CSP do `oratio/vercel.json` (`script-src`/`style-src`/`connect-src`/`frame-src`,
+  valores da doc do Google) + plano de verificação pós-deploy escrito em
+  `oratio/docs/tasks/login-google-todo.md`. `ALLOWED_ORIGINS` **conferido, inalterado**.
+  **Humano:** `GOOGLE_CLIENT_ID` (Render) + `VITE_GOOGLE_CLIENT_ID` (Vercel); `npx prisma db push`
+  de produção; cliente OAuth no Google Cloud Console; smoke no iPhone com PWA; rodar a
+  verificação pós-deploy da CSP.
 
 ## Riscos e mitigações
 
