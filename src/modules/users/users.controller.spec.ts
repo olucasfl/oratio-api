@@ -359,11 +359,17 @@ describe('UsersController (delegation)', () => {
     );
   });
 
-  it('deleteAccount() delegates the userId and the confirmation password', () => {
+  it('deleteAccount() delegates the userId and the identity proof (password + googleCredential)', () => {
     userService.deleteAccount.mockReturnValue('deleted');
 
-    controller.deleteAccount(authed('user-1'), { password: 'CorrectPass123' } as any);
+    controller.deleteAccount(authed('user-1'), {
+      password: 'CorrectPass123',
+      googleCredential: undefined,
+    } as any);
 
-    expect(userService.deleteAccount).toHaveBeenCalledWith('user-1', 'CorrectPass123');
+    expect(userService.deleteAccount).toHaveBeenCalledWith('user-1', {
+      password: 'CorrectPass123',
+      googleCredential: undefined,
+    });
   });
 });

@@ -175,6 +175,16 @@ export class AuthService {
     };
   }
 
+  /*
+  Reusado pelo `UsersService` para excluir uma conta só-Google: como não há
+  senha para confirmar a intenção, a prova de identidade é um id_token fresco
+  do Google (mesma verificação do POST /auth/google). Devolve o `sub` para
+  casar com um `LinkedAccount` do usuário.
+  */
+  async verifyGoogleIdentity(credential: string) {
+    return this.verifyGoogleCredential(credential);
+  }
+
   async loginWithGoogle(credential: string, deviceInfo?: DeviceInfo) {
 
     const profile = await this.verifyGoogleCredential(credential);

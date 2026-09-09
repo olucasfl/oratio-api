@@ -102,11 +102,14 @@ pessoa entra por Google mas fica barrada **para sempre** no `login()` (que exige
   esconder o botão).
 - **`DELETE /users/me` numa conta só-Google**: mesmo problema (`bcrypt.compare` com `null` → 500).
   O check de senha existe de propósito (`ARCHITECTURE.md` §7: token roubado não pode, sozinho,
-  destruir a conta). **Comportamento a definir** — proposta: `DeleteAccountDto` aceita
-  `{ password?, googleCredential? }`; conta com senha → `password` obrigatório (inalterado);
-  conta sem senha → `googleCredential` fresco obrigatório, verificado pelo mesmo helper do
-  `POST /auth/google`, com `payload.sub` batendo num `LinkedAccount` deste user. Não conseguir
-  excluir a conta seria problema de LGPD, então **algum** caminho sem senha precisa existir.
+  destruir a conta). **Decidido (2026-09-09):** `DeleteAccountDto` aceita
+  `{ password?, googleCredential? }` (nenhum obrigatório no DTO — qual exigir depende da conta);
+  conta com senha → `password` obrigatório (inalterado, `bcrypt.compare`); conta sem senha →
+  `googleCredential` fresco obrigatório, verificado pelo **mesmo** helper do `POST /auth/google`
+  (`AuthService.verifyGoogleIdentity`), com `payload.sub` batendo num `LinkedAccount`
+  (`provider: "google"`) **deste** user. Prova ausente ou de outra conta Google → **400**, nunca
+  500. Não conseguir excluir a conta seria problema de LGPD, então **algum** caminho sem senha
+  precisa existir.
 
 ### Desvincular
 
@@ -126,7 +129,8 @@ remover um `LinkedAccount`.
 | `set-password` sem `Authorization` / token inválido | 401 | padrão do `JwtAuthGuard` | não |
 | `set-password` com `password` != `confirmPassword` | 400 | `{ message: [...] }` | não |
 | `change-password` numa conta só-Google (`password: null`) | 409 | `{ message: "Esta conta não tem senha. Use \"Definir senha\" para criar uma." }` | não |
-| `DELETE /users/me` numa conta só-Google | (a definir — ver "Conta só-Google") | idem | não |
+| `DELETE /users/me` numa conta só-Google **sem** `googleCredential` (ou com um cujo `sub` não bate um `LinkedAccount` do user) | 400 | `{ message: "Não foi possível confirmar sua identidade para excluir a conta." }` | não |
+| `DELETE /users/me` numa conta só-Google com `googleCredential` inválido/expirado | 401 | `{ message: "Não foi possível validar seu login com o Google. Tente de novo." }` (helper do `POST /auth/google`) | não |
 | Corrida: 2º `POST /auth/google` concorrente para o mesmo e-mail inédito | 200 (não 500) | par de tokens normal | não — o `P2002` do Prisma é capturado e o fluxo re-resolve |
 
 Nenhum caminho de erro cria uma segunda conta com o mesmo e-mail — o `@unique` em `User.email`
@@ -299,10 +303,15 @@ registrado em `docs/specs/INDEX.md`.
 - [x] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
   `POST /users/me/change-password`, **então** 409 `{ message: "Esta conta não tem senha. ..." }`
   e o `bcrypt.compare` **não** é chamado com `null` (o teste asserta o mock).
-- [ ] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
-  `DELETE /users/me` **sem** a prova de identidade exigida para conta sem senha, **então** 400
-  (não 500); **e quando** com a prova válida, **então** 200 e a conta é apagada. *(Contrato
-  exato depende da decisão pendente — ver "Questões em aberto".)*
+- [x] **Dado** um usuário autenticado cuja conta tem `password: null`, **quando**
+  `DELETE /users/me` **sem** `googleCredential`, **então** 400 (não 500) e `user.delete` não é
+  chamado; **quando** com um `googleCredential` cujo `sub` **não** bate um `LinkedAccount` desse
+  user, **então** 400 e `user.delete` não é chamado; **quando** com um `googleCredential` fresco
+  cujo `sub` bate um `LinkedAccount` desse user, **então** 200 e a conta é apagada (o teste
+  asserta os args de `verifyGoogleIdentity`, `linkedAccount.findUnique` e `user.delete`).
+- [x] **Dado** um usuário autenticado cuja conta **tem** senha, **quando** `DELETE /users/me`
+  com a senha certa → 200; com a senha errada → 401; **sem** `password` → 400 (comportamento
+  anterior preservado).
 
 ### Frontend (resumo — critérios completos no par)
 
@@ -469,15 +478,16 @@ Texto do bullet para `ARCHITECTURE.md` §8 (aplicar na Fase A, quando a rota exi
 
 ## Questões em aberto
 
-- [ ] **`DELETE /users/me` numa conta só-Google.** Proposta (recomendada): `DeleteAccountDto`
-  aceita `{ password?, googleCredential? }` — conta com senha usa `password` (inalterado), conta
-  sem senha exige um `googleCredential` fresco verificado pelo helper do `POST /auth/google`,
-  com `payload.sub` batendo num `LinkedAccount` do user. Alternativa mais simples: aceitar só o
-  JWT para contas sem senha, registrando no `ARCHITECTURE.md` §7 que isso reabre parcialmente o
-  risco de "token roubado → exclusão". **Aguardando decisão humana antes de implementar a A8
-  (parte `deleteAccount`).**
+Nenhuma.
 
 ### Resolvida
+
+- **`DELETE /users/me` numa conta só-Google** (2026-09-09). Escolhida a proposta recomendada:
+  `DeleteAccountDto` → `{ password?, googleCredential? }`; conta com senha usa `password`
+  (inalterado), conta sem senha exige um `googleCredential` fresco verificado por
+  `AuthService.verifyGoogleIdentity` (o mesmo helper do `POST /auth/google`, agora exportado pelo
+  `AuthModule` e consumido pelo `UsersModule`), com `payload.sub` batendo num `LinkedAccount`
+  google deste user. Prova ausente/incorreta → 400. Implementado na A8.
 
 - `X-App` no `set-password`: `POST /users/me/change-password` **não** exige `X-App` hoje, então
   `set-password` também não. Pilha: `@UseGuards(JwtAuthGuard, ThrottlerGuard)` +

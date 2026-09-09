@@ -161,11 +161,13 @@ item a item em `docs/tasks/login-google-todo.md`.
   no `null`; teste de regressão. Fecha: recuperação de conta só-Google.
 - **A8 — `changePassword` / `deleteAccount` com `password: null`.** Ambos fazem `bcrypt.compare`
   contra `user.password` → 500 em conta só-Google. `changePassword` → **409** com mensagem
-  mandando usar "Definir senha", checado antes do `bcrypt`. `deleteAccount` → **comportamento
-  aguardando decisão humana** (proposta: `DeleteAccountDto` aceita `{ password?, googleCredential? }`;
-  sem senha exige `googleCredential` fresco verificado pelo helper da A2 com `sub` batendo num
-  `LinkedAccount` do user). Fecha: `change-password` em conta só-Google → 409; `delete` em conta
-  só-Google → 400 sem prova / 200 com prova.
+  mandando usar "Definir senha", checado antes do `bcrypt`. `deleteAccount` → **decidido
+  (2026-09-09): re-auth Google.** `DeleteAccountDto` aceita `{ password?, googleCredential? }`;
+  sem senha exige `googleCredential` fresco verificado por `AuthService.verifyGoogleIdentity`
+  (wrapper do helper da A2; `AuthModule` exporta `AuthService`, `UsersModule` importa
+  `AuthModule`) com `sub` batendo num `LinkedAccount` do user. Fecha: `change-password` em conta
+  só-Google → 409; `delete` em conta só-Google → 400 sem prova / 400 com prova de outra conta /
+  200 com prova válida. **(Entregue na branch `feat/login-google-a8-delete`.)**
 - **A9 — `emailVerified: true` na auto-ligação** *(dentro da A3)*. Quando a auto-ligação encontra
   `User` com `emailVerified: false`, gravar `true` — o Google verificou a mesma caixa. Sem isso a
   pessoa fica barrada pra sempre no `login()`. `password`/`name` continuam intactos. Fecha: AC de
@@ -221,9 +223,11 @@ item a item em `docs/tasks/login-google-todo.md`.
 
 ## Questões em aberto
 
-- **`DELETE /users/me` numa conta só-Google** (A8, parte `deleteAccount`). Proposta recomendada:
-  `DeleteAccountDto` aceita `{ password?, googleCredential? }`; sem senha exige `googleCredential`
-  fresco verificado pelo helper da A2. Alternativa: só JWT, com o risco registrado no
-  `ARCHITECTURE.md` §7. **Aguardando decisão humana** — o resto da Fase A não depende disso.
+Nenhuma.
 
-Resolvida: `X-App` no `set-password` — `change-password` não exige, `set-password` também não.
+Resolvidas:
+- `X-App` no `set-password` — `change-password` não exige, `set-password` também não.
+- **`DELETE /users/me` numa conta só-Google** (A8, parte `deleteAccount`) — 2026-09-09: escolhida
+  a re-auth Google (proposta recomendada). `DeleteAccountDto` → `{ password?, googleCredential? }`;
+  sem senha exige `googleCredential` fresco verificado por `AuthService.verifyGoogleIdentity`,
+  `sub` casando um `LinkedAccount` do user. Entregue na branch `feat/login-google-a8-delete`.
