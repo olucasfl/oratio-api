@@ -9,7 +9,7 @@ no mesmo commit — e `/docs-sync` confere se ela bate com a realidade.
 | Reformulação das notificações | — | `tasks/notifications-plan.md` | `tasks/notifications-todo.md` | `oratio/docs/tasks/notifications.md` (ponteiro) | ✅ concluída (Fases 1–5) |
 | Perfis de resposta do VoxAI | — *(não precisa: já entregue)* | `tasks/vox-profiles-plan.md` | `tasks/vox-profiles-todo.md` | `oratio/docs/tasks/vox-profiles-todo.md` | ✅ **em produção** (`main`: 2 campos no schema, 6 perfis com `systemAppend`, 3 rotas; `db push` aplicado) |
 | Bíblia de Estudo | — *(não precisa: já entregue)* | `tasks/biblia-plan.md` | `tasks/biblia-todo.md` | `oratio/docs/tasks/biblia-*.md` | ✅ **em produção** (B1–B3 na `main`; `npx jest bible` → 4 suítes, 39 testes verdes) |
-| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 Fases A–D com código na `develop` dos dois repos (Fase D / CSP do GIS **já mergeada** no `oratio`, commit `946cfac`). **Fase E aprovada** (`docs/login-google-fase-e`): reverte a anti-enumeração do login, adiciona `isNewUser`/`googleLinkedNow` ao `POST /auth/google`, bloqueio de cadastro repetido, toast de auto-ligação, rótulo do botão, loading state, e liga o frontend à exclusão de conta só-Google. Falta plano/checklist. Pendências humanas: env vars Vercel/Render, `db push` de produção, cliente OAuth no Google Cloud Console, teste manual + verificação pós-deploy da CSP. |
+| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 Fases A–D com código na `develop` dos dois repos (Fase D / CSP do GIS **já mergeada** no `oratio`, commit `946cfac`). **Fase E aprovada** (`docs/login-google-fase-e`): reverte a anti-enumeração do login, adiciona `isNewUser`/`googleLinkedNow` ao `POST /auth/google`, bloqueio de cadastro repetido, toast de auto-ligação, rótulo do botão, loading state, e liga o frontend à exclusão de conta só-Google. Falta plano/checklist. Pendências humanas: env vars Vercel/Render, cliente OAuth no Google Cloud Console, teste manual + verificação pós-deploy da CSP. **`db push` de produção — FEITO em 2026-09-09** (Supabase; `LinkedAccount` + `password` nullable em produção). |
 
 ## Legenda de status
 
@@ -38,18 +38,16 @@ Estas não são tarefas de código; são passos que só o humano pode executar e
 fechamento de uma feature. Mantenha a lista curta e atual — **pendência resolvida e ainda
 listada é tão ruim quanto pendência não registrada.**
 
-- **login-google** — `npx prisma db push` **local** (dev) ao fim da Fase A: o `curl` dos
-  caminhos de auto-ligação / conta só-Google dá 500 sem as tabelas novas. E `db push` de
-  **produção** na Fase D. Script em `prisma/db-scripts/` (gerado por `/db-change` na Fase A).
 - **login-google** — criar o cliente OAuth "Web application" e a tela de consentimento no Google
   Cloud Console; preencher `GOOGLE_CLIENT_ID` (Render) e `VITE_GOOGLE_CLIENT_ID` (Vercel). Lista
-  de valores em `specs/login-google.md` → "Notas de ambiente". Necessário para a Fase B.
-- **login-google** — `google-auth-library` **aprovada** (2026-09-08); o `npm install` acontece na
-  Fase A, no commit da implementação.
+  de valores em `specs/login-google.md` → "Notas de ambiente".
+- **login-google** — verificação pós-deploy da CSP do GIS (console do navegador no app da Vercel)
+  + smoke do PWA no iPhone.
 
-O `db push` de produção do VoxAI e o aceite doutrinário dos perfis estavam listados aqui e
-**já haviam sido feitos** — o Vox roda em produção com os perfis desde antes desta auditoria.
-Removidos em 2026-09-04.
+O `db push` de produção do **login-google** foi feito em 2026-09-09 (Supabase; `LinkedAccount`
++ `password` nullable). O `db push` do VoxAI e o aceite doutrinário dos perfis também já haviam
+sido feitos — removidos em 2026-09-04. `google-auth-library` foi aprovada (2026-09-08) e já está
+no `package.json`.
 
 ## Dívidas conhecidas
 

@@ -245,11 +245,14 @@ enquanto nenhuma conta só-Google (com `password` nulo) existir. Depois do prime
 Google, o rollback dessa linha específica falha até esses registros ganharem senha ou serem
 removidos. O script de rollback precisa dizer isso.
 
-### `db push` pendente
+### `db push` — **aplicado em produção (2026-09-09)**
 
-`/db-change` escreve `prisma/db-scripts/AAAA-MM-DD-login-google.sql` (aplicação + rollback
-comentado). O `npx prisma db push && npx prisma generate` em produção é **execução humana** —
-registrado em `docs/specs/INDEX.md`.
+`/db-change` escreveu `prisma/db-scripts/2026-09-08-login-google.sql` (aplicação + rollback
+comentado). O humano rodou `npx prisma db push` contra o Supabase de produção nesta sessão —
+saída "Your database is now in sync with your Prisma schema", datasource
+`aws-1-us-east-1.pooler.supabase.com`. **`LinkedAccount` e `User.password` nullable já estão em
+produção.** Fase E não muda o schema; a spec `boas-vindas` precisa do **próprio** push (a coluna
+`welcomeSeenAt` não pega carona neste, que já foi).
 
 ## Critérios de aceite (testáveis, em BDD)
 
@@ -362,7 +365,7 @@ registrado em `docs/specs/INDEX.md`.
   - Login Google ponta a ponta no navegador (`localhost:5173` → `localhost:3000`), Fase B.
   - Smoke no iPhone com o PWA instalado (Fase D) — botão abre o popup e volta pro app sem jogar
     pro Safari.
-  - `npx prisma db push` em produção (Fase D).
+  - ~~`npx prisma db push` em produção~~ — **feito em 2026-09-09** (Supabase de produção).
   - Criação do cliente OAuth + tela de consentimento no Google Cloud Console (antes da Fase B).
   - Verificação de CSP no console do navegador após deploy na Vercel (Fase D).
 
@@ -397,8 +400,9 @@ próxima branch.
   `https://accounts.google.com/gsi/client`, `style-src` `.../gsi/style`, `connect-src` e
   `frame-src` a URL-pai `https://accounts.google.com/gsi/` — mais o plano de verificação
   pós-deploy escrito em `oratio/docs/tasks/login-google-todo.md`. `ALLOWED_ORIGINS` conferido,
-  inalterado. Humano: `db push` de produção; env vars (Vercel/Render); origens de produção no
-  Google Cloud Console; smoke no iPhone com PWA instalado; rodar a verificação pós-deploy.
+  inalterado. Humano: ~~`db push` de produção~~ (feito 2026-09-09); env vars (Vercel/Render);
+  origens de produção no Google Cloud Console; smoke no iPhone com PWA instalado; rodar a
+  verificação pós-deploy.
 
 ## Fase E — mensageria, sinais de resultado, e correções do frontend
 
@@ -703,7 +707,8 @@ Confirmado em `users.service.ts:463` (`if (!link || link.userId !== userId)`).
   for construído — e hoje não há motivo para isso (a assinatura do Google + `aud` + `exp` são a
   defesa).
 - **Processo de dev, não critério de aceite:**
-  - `npx prisma db push` em produção (execução humana — `RULES.md` §2).
+  - ~~`npx prisma db push` em produção~~ — **feito em 2026-09-09** (Supabase de produção;
+    `LinkedAccount` + `password` nullable aplicados).
   - Criar o cliente OAuth e a tela de consentimento no Google Cloud Console (execução humana).
   - Adicionar `google-auth-library` ao `package.json` (aprovada; acontece na Fase A).
   - Atualizar `docs/ARCHITECTURE.md` §5/§8/§9 e o §7 (CSP) do `oratio` — no mesmo commit da
