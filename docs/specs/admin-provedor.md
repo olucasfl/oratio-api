@@ -1,6 +1,6 @@
 # Spec: admin-provedor — método de entrada no painel admin
 
-> Status: rascunho (2026-09-09)
+> Status: **aprovada** (2026-09-09) — conceito e questões abertas resolvidas; falta plano/checklist
 > Plano: `docs/tasks/admin-provedor-plan.md` · Checklist: `docs/tasks/admin-provedor-todo.md` *(a criar após "aprovada")*
 > Frontend pareado: `oratio/docs/specs/admin-provedor.md` (ponteiro)
 
@@ -193,7 +193,15 @@ Loop de verificação por tarefa:
 
 ## Questões em aberto
 
-- [ ] **Ícone do "só Oratio".** Proposta: `Mail` do `lucide-react`. Alternativa: um glifo "O" da
-  marca. Decidir no design.
-- [ ] **Mostrar o método também no modal de detalhe do usuário?** A spec assume **sim** (é
-  barato e consistente). Se não quiser, é só não fazer o `getUserDetail`.
+Nenhuma.
+
+### Decidido (2026-09-09)
+
+- **Ícone do "só Oratio": `Mail` (`lucide-react`).** A distinção mostrada é *método de login*, e o
+  método Oratio é literalmente "e-mail + senha" — `Mail` lê como isso ao lado do glifo do Google.
+  Um "O" da marca exigiria asset SVG novo (o painel é 100% lucide hoje). `Mail` é inequívoco a
+  9–14px, que é o tamanho que esses indicadores de linha renderizam.
+- **Método também no modal de detalhe: sim.** `getUserDetail` já seleciona quase o mesmo
+  conjunto de campos; +2 linhas e 1 teste. Um admin investigando uma conta específica (chamado
+  de suporte, "não consigo entrar") quer esse fato sem voltar à lista e casar ícones — e fica na
+  mesma linha dos badges "Verificado"/"Admin" que o modal já mostra.
