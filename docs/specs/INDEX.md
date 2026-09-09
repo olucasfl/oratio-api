@@ -9,7 +9,8 @@ no mesmo commit — e `/docs-sync` confere se ela bate com a realidade.
 | Reformulação das notificações | — | `tasks/notifications-plan.md` | `tasks/notifications-todo.md` | `oratio/docs/tasks/notifications.md` (ponteiro) | ✅ concluída (Fases 1–5) |
 | Perfis de resposta do VoxAI | — *(não precisa: já entregue)* | `tasks/vox-profiles-plan.md` | `tasks/vox-profiles-todo.md` | `oratio/docs/tasks/vox-profiles-todo.md` | ✅ **em produção** (`main`: 2 campos no schema, 6 perfis com `systemAppend`, 3 rotas; `db push` aplicado) |
 | Bíblia de Estudo | — *(não precisa: já entregue)* | `tasks/biblia-plan.md` | `tasks/biblia-todo.md` | `oratio/docs/tasks/biblia-*.md` | ✅ **em produção** (B1–B3 na `main`; `npx jest bible` → 4 suítes, 39 testes verdes) |
-| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 quase pronta — **Fases A, B, C na `develop`** dos dois repos (backend: A2–A10, A8 `deleteAccount` re-auth Google, C1 `hasPassword`; frontend: botão GIS, UI "definir senha"). **Fase D (CSP do GIS no `oratio/vercel.json`)** na branch `oratio:feat/login-google-fase-d`. Falta: merge da Fase D + pendências humanas (env vars Vercel/Render, `db push` de produção, cliente OAuth no Google Cloud Console, teste manual no navegador + plano de verificação pós-deploy da CSP). |
+| Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 quase pronta — **Fases A, B, C na `develop`** dos dois repos (backend: A2–A10, A8 `deleteAccount` re-auth Google, C1 `hasPassword`; frontend: botão GIS, UI "definir senha"). **Fase D (CSP do GIS no `oratio/vercel.json`)** na branch `oratio:feat/login-google-fase-d`. **Fase E** (mensageria + sinais de resultado + correções do frontend) em rascunho na branch `docs/login-google-fase-e`. Falta: merge da Fase D + pendências humanas (env vars Vercel/Render, `db push` de produção, cliente OAuth no Google Cloud Console, teste manual no navegador + plano de verificação pós-deploy da CSP). |
+| Boas-vindas (guia de primeira entrada) | `specs/boas-vindas.md` | *(a criar)* | *(a criar)* | `oratio/docs/specs/boas-vindas.md` (ponteiro, a criar) | 📝 **rascunho** (branch `docs/spec-boas-vindas`) — guia de até 3 páginas na 1ª entrada (senha e Google), 1x só. Backend: campo `User.welcomeSeenAt` (paralelo a `voxOnboardingSeenAt`) + `showWelcome` no `GET /users/me` + `POST /users/me/welcome-seen`. 2 questões abertas (conteúdo das páginas, nome do campo). `db push` junta com o do login-google. |
 
 ## Legenda de status
 
@@ -46,6 +47,10 @@ listada é tão ruim quanto pendência não registrada.**
   de valores em `specs/login-google.md` → "Notas de ambiente". Necessário para a Fase B.
 - **login-google** — `google-auth-library` **aprovada** (2026-09-08); o `npm install` acontece na
   Fase A, no commit da implementação.
+- **boas-vindas** — a coluna `User.welcomeSeenAt` (aditiva) + o backfill `welcomeSeenAt = now()`
+  nas contas existentes entram no **mesmo** `npx prisma db push` de produção já pendente do
+  login-google. **Um push cobre os dois** — não rodar dois. Script em `prisma/db-scripts/`
+  (gerado por `/db-change` depois da spec aprovada).
 
 O `db push` de produção do VoxAI e o aceite doutrinário dos perfis estavam listados aqui e
 **já haviam sido feitos** — o Vox roda em produção com os perfis desde antes desta auditoria.
