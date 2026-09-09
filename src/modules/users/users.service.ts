@@ -13,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { AppType } from 'src/enums/app-type.enum';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class UsersService {
@@ -20,6 +21,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly authService: AuthService,
   ) {}
 
   /*
@@ -405,12 +407,22 @@ export class UsersService {
   */
 
   /*
-  Exige a senha atual antes de apagar — sem isso, só a posse do access
-  token (roubável via XSS, dispositivo destravado, etc.) já bastava pra
-  destruir a conta inteira e todo o histórico, sem chance de confirmação
+  Exige uma prova de identidade antes de apagar — sem isso, só a posse do
+  access token (roubável via XSS, dispositivo destravado, etc.) já bastava
+  pra destruir a conta inteira e todo o histórico, sem chance de confirmação
   nem de estorno.
+
+  - Conta com senha  -> `password` + `bcrypt.compare` (comportamento antigo).
+  - Conta só-Google  -> `googleCredential`: um id_token fresco do Google,
+    verificado pelo MESMO helper do POST /auth/google, cujo `sub` precisa
+    casar um `LinkedAccount` google DESTE usuário. É a prova equivalente à
+    senha (ARCHITECTURE.md §7). Não conseguir excluir seria problema de
+    LGPD, então algum caminho sem senha precisa existir.
   */
-  async deleteAccount(userId: string, password: string) {
+  async deleteAccount(
+    userId: string,
+    proof: { password?: string; googleCredential?: string },
+  ) {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -420,22 +432,48 @@ export class UsersService {
       throw new UnauthorizedException();
     }
 
-    /*
-    Conta só-Google: não há senha para confirmar a exclusão, e
-    `bcrypt.compare(x, null)` lançaria (viraria 500). O caminho definitivo
-    — re-autenticar no Google e conferir o `sub` contra um LinkedAccount
-    deste user — está pendente de decisão humana (spec, "Questões em
-    aberto"; plano A8). Por ora recusa com 400 em vez de estourar 500;
-    não conseguir excluir a conta é problema de LGPD, então esta é uma
-    parada temporária, não o destino.
-    */
     if (!user.password) {
-      throw new BadRequestException(
-        'Não foi possível confirmar sua identidade para excluir a conta.',
+      if (!proof.googleCredential) {
+        throw new BadRequestException(
+          'Não foi possível confirmar sua identidade para excluir a conta.',
+        );
+      }
+
+      const identity = await this.authService.verifyGoogleIdentity(
+        proof.googleCredential,
       );
+
+      const link = await this.prisma.linkedAccount.findUnique({
+        where: {
+          provider_providerAccountId: {
+            provider: 'google',
+            providerAccountId: identity.sub,
+          },
+        },
+      });
+
+      // Token válido do Google, mas de outra conta Google que não está
+      // ligada a este usuário -> não é prova para excluir ESTA conta.
+      if (!link || link.userId !== userId) {
+        throw new BadRequestException(
+          'Não foi possível confirmar sua identidade para excluir a conta.',
+        );
+      }
+
+      await this.prisma.user.delete({
+        where: { id: userId },
+      });
+
+      return {
+        message: 'Account deleted successfully',
+      };
     }
 
-    const matches = await bcrypt.compare(password, user.password);
+    if (!proof.password) {
+      throw new BadRequestException('Senha é obrigatória');
+    }
+
+    const matches = await bcrypt.compare(proof.password, user.password);
 
     if (!matches) {
       throw new UnauthorizedException('Senha incorreta');

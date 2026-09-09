@@ -369,7 +369,10 @@ export class UsersController {
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    return this.userService.deleteAccount(userId, body.password);
+    return this.userService.deleteAccount(userId, {
+      password: body.password,
+      googleCredential: body.googleCredential,
+    });
   }
 
 }

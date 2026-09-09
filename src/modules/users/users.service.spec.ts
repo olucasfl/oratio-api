@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { AuthService } from '../auth/auth.service';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -29,6 +30,7 @@ describe('UsersService', () => {
       delete: jest.Mock;
       deleteMany: jest.Mock;
     };
+    linkedAccount: { findUnique: jest.Mock };
     userActivity: { findMany: jest.Mock; count: jest.Mock };
     consecrationProgress: { count: jest.Mock; findMany: jest.Mock };
     spiritualStats: { aggregate: jest.Mock };
@@ -37,6 +39,7 @@ describe('UsersService', () => {
     sendOratioVerificationEmail: jest.Mock;
     sendOratioEmailChangeConfirmation: jest.Mock;
   };
+  let authService: { verifyGoogleIdentity: jest.Mock };
 
   const ORIGINAL_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -56,6 +59,7 @@ describe('UsersService', () => {
         delete: jest.fn(),
         deleteMany: jest.fn(),
       },
+      linkedAccount: { findUnique: jest.fn() },
       userActivity: { findMany: jest.fn(), count: jest.fn() },
       consecrationProgress: { count: jest.fn(), findMany: jest.fn() },
       spiritualStats: { aggregate: jest.fn() },
@@ -66,11 +70,16 @@ describe('UsersService', () => {
       sendOratioEmailChangeConfirmation: jest.fn(),
     };
 
+    authService = {
+      verifyGoogleIdentity: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: PrismaService, useValue: prisma },
         { provide: MailService, useValue: mailService },
+        { provide: AuthService, useValue: authService },
       ],
     }).compile();
 
@@ -494,7 +503,7 @@ describe('UsersService', () => {
       prisma.user.delete.mockResolvedValue({});
 
       await expect(
-        service.deleteAccount('user-1', 'CorrectPass123'),
+        service.deleteAccount('user-1', { password: 'CorrectPass123' }),
       ).resolves.toEqual({ message: 'Account deleted successfully' });
 
       expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-1' } });
@@ -505,31 +514,100 @@ describe('UsersService', () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'user-1', password: hashed });
 
       await expect(
-        service.deleteAccount('user-1', 'WrongPass'),
+        service.deleteAccount('user-1', { password: 'WrongPass' }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
 
       expect(prisma.user.delete).not.toHaveBeenCalled();
     });
 
-    it('A8 — 400 (not 500) on a passwordless account, and never calls delete', async () => {
-      // Parada temporária: o caminho definitivo (re-auth Google) aguarda
-      // decisão humana. O que NÃO pode é estourar 500 no bcrypt.compare(x, null).
+    it('400 (not 500) when a password account sends no password', async () => {
+      const hashed = await bcrypt.hash('CorrectPass123', 10);
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', password: hashed });
+
+      await expect(
+        service.deleteAccount('user-1', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('A8 — passwordless account with no googleCredential → 400, never calls delete', async () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
 
       await expect(
-        service.deleteAccount('user-google', 'whatever'),
+        service.deleteAccount('user-google', {}),
       ).rejects.toMatchObject({
         message: 'Não foi possível confirmar sua identidade para excluir a conta.',
       });
+      expect(authService.verifyGoogleIdentity).not.toHaveBeenCalled();
+      expect(prisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('A8 — passwordless account: fresh googleCredential whose sub matches a LinkedAccount of this user → deletes', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      authService.verifyGoogleIdentity.mockResolvedValue({
+        sub: 'google-sub-1',
+        email: 'usuario@exemplo.com',
+        name: 'Fulano de Tal',
+      });
+      prisma.linkedAccount.findUnique.mockResolvedValue({
+        userId: 'user-google',
+        provider: 'google',
+        providerAccountId: 'google-sub-1',
+      });
+      prisma.user.delete.mockResolvedValue({});
+
+      await expect(
+        service.deleteAccount('user-google', { googleCredential: 'fresh-id-token' }),
+      ).resolves.toEqual({ message: 'Account deleted successfully' });
+
+      expect(authService.verifyGoogleIdentity).toHaveBeenCalledWith('fresh-id-token');
+      expect(prisma.linkedAccount.findUnique).toHaveBeenCalledWith({
+        where: {
+          provider_providerAccountId: {
+            provider: 'google',
+            providerAccountId: 'google-sub-1',
+          },
+        },
+      });
+      expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-google' } });
+    });
+
+    it('A8 — passwordless account: valid Google token but sub is not linked to this user → 400, never calls delete', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      authService.verifyGoogleIdentity.mockResolvedValue({
+        sub: 'someone-elses-sub',
+        email: 'outro@exemplo.com',
+        name: 'Beltrano',
+      });
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.deleteAccount('user-google', { googleCredential: 'valid-but-wrong' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('A8 — passwordless account: an invalid googleCredential lets the verifier 401 bubble up', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      authService.verifyGoogleIdentity.mockRejectedValue(
+        new UnauthorizedException('Não foi possível validar seu login com o Google. Tente de novo.'),
+      );
+
+      await expect(
+        service.deleteAccount('user-google', { googleCredential: 'garbage' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+
       expect(prisma.user.delete).not.toHaveBeenCalled();
     });
 
     it('throws when the account no longer exists', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.deleteAccount('ghost', 'whatever')).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
+      await expect(
+        service.deleteAccount('ghost', { password: 'whatever' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 

@@ -189,25 +189,34 @@ fazem `bcrypt.compare(x, user.password)` — com `null` lançam → 500 numa con
 - **`changePassword`**: antes do `bcrypt.compare`, se `user.password == null` →
   `ConflictException('Esta conta não tem senha. Use "Definir senha" para criar uma.')`.
   Comentário explicando que não pode depender do frontend esconder o botão.
-- **`deleteAccount`**: **BLOQUEADO — aguardando decisão humana** (só JWT × re-auth Google).
-  Proposta recomendada: `DeleteAccountDto` → `{ password?: string; googleCredential?: string }`;
-  `user.password != null` → `password` obrigatório + `bcrypt.compare` (inalterado);
-  `user.password == null` → `googleCredential` obrigatório, verificado pelo helper da A2, com
-  `payload.sub` batendo num `LinkedAccount` (`provider: 'google'`) deste user. Sem a prova
-  adequada → `BadRequestException` (não 500).
+- **`deleteAccount`**: **DECIDIDO (2026-09-09 — re-auth Google, proposta recomendada).**
+  `DeleteAccountDto` → `{ password?: string; googleCredential?: string }` (nenhum obrigatório no
+  DTO); `user.password != null` → `password` obrigatório + `bcrypt.compare` (inalterado; sem
+  `password` → 400 no service, não mais no pipe); `user.password == null` → `googleCredential`
+  obrigatório, verificado por `AuthService.verifyGoogleIdentity` (wrapper público do helper da
+  A2; `AuthModule` passa a exportar `AuthService`, `UsersModule` a importar `AuthModule`), com
+  `payload.sub` batendo num `LinkedAccount` (`provider: 'google'`) deste user. Prova ausente ou
+  de outra conta Google → `BadRequestException` (não 500); `googleCredential` inválido → o 401
+  do helper propaga.
 
 **Critérios de aceite (BDD da spec):**
 - [x] `change-password` autenticado numa conta `password: null` → 409, mensagem aponta p/
       "Definir senha"; `bcrypt.compare` **não** chamado com `null` (teste asserta o mock)
-- [x] `delete` autenticado numa conta `password: null` sem a prova exigida → 400 (não 500)
-- [ ] `delete` autenticado numa conta `password: null` com a prova válida → 200, conta apagada
-      *(BLOQUEADO — aguardando decisão humana sobre o caminho: só JWT × re-auth Google)*
+- [x] `delete` autenticado numa conta `password: null` sem `googleCredential` → 400 (não 500),
+      `user.delete` não chamado
+- [x] `delete` autenticado numa conta `password: null` com `googleCredential` cujo `sub` bate um
+      `LinkedAccount` desse user → 200, conta apagada (teste asserta args de
+      `verifyGoogleIdentity` / `linkedAccount.findUnique` / `user.delete`)
+- [x] `delete` autenticado numa conta `password: null` com `googleCredential` cujo `sub` **não**
+      bate → 400, `user.delete` não chamado
 - [x] `delete`/`change-password` numa conta **com** senha → comportamento atual inalterado
+      (senha certa → 200; errada → 401; ausente → 400)
 
-**Verificação:** [x] `npm test -- users` verde · `npm run build` limpo (parte `deleteAccount` só até o 400)
-**Dependências:** A1, A2 (helper de verificação, se a proposta for aceita) ·
-**Arquivos:** `users.service.ts`, `users.controller.ts` (se DTO mudar),
-`dto/delete-account.dto.ts`, `users.service.spec.ts` · **Escopo:** S
+**Verificação:** [x] `npm test` inteiro verde (842) · `npm run build` limpo
+**Dependências:** A1, A2 (helper de verificação) ·
+**Arquivos:** `users.service.ts`, `users.controller.ts`, `dto/delete-account.dto.ts`,
+`users.service.spec.ts`, `users.controller.spec.ts`, `auth.service.ts`, `auth.module.ts`,
+`users.module.ts` · **Escopo:** S
 
 ---
 
