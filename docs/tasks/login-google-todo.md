@@ -315,12 +315,13 @@ E3 = logout antes de descartar). Backend nas branches `feat/login-google-fase-e`
       atualizado (55 verdes) · `npm run build` limpo. **Substitui a A4.**
       - AC: login por senha em conta `password: null` → 401 com a mensagem nova; `bcrypt` não
         roda antes (a mensagem exata prova o caminho). ✓
-- [ ] **E2** — `auth.service.ts`: `loginWithGoogle` + `linkGoogleAndIssue` + caminho de criação
-      + `resolveGoogleAfterRace` compõem `{ ...tokens, isNewUser, googleLinkedNow }`.
-      `auth.controller.ts` repassa. `auth.service.spec.ts`: 4 testes `toEqual`→`toMatchObject` +
-      casos. `ARCHITECTURE.md` §5.
-      - AC: sem `User` → `true/false`; `User` sem link → `false/true`; `sub` com link →
-        `false/false`; corrida `P2002` → `isNewUser:false`.
+- [x] **E2** — `auth.service.ts`: interface `GoogleLoginResult` + helper `withGoogleFlags`;
+      `loginWithGoogle` / `linkGoogleAndIssue` / caminho de criação / `resolveGoogleAfterRace`
+      compõem `{ ...tokens, isNewUser, googleLinkedNow }`. `auth.controller.ts` já repassa o
+      objeto inteiro (sem mudança). `auth.service.spec.ts`: os 4 testes cobrem os 4 desfechos.
+      `ARCHITECTURE.md` §5 (novo shape + a reversão do E1). 842 testes verdes · build limpo.
+      - AC: sem `User` → `true/false` ✓; `User` sem link → `false/true` ✓; `sub` com link →
+        `false/false` ✓; corrida `P2002` → `isNewUser:false` ✓.
 - [ ] **E7-backend** — só confirmar cobertura (A8 já implementou). `users.service.spec.ts`:
       casos "`sub` de outra conta" e "`sub` sem `LinkedAccount`" → 400, `user.delete` não roda.
 

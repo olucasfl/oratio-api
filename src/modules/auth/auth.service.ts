@@ -15,6 +15,25 @@ export interface DeviceInfo {
   ipAddress?: string;
 }
 
+/*
+Resultado do POST /auth/google. Além do par de tokens (mesmo shape do login),
+dois booleanos que dizem ao frontend O QUE aconteceu nesta requisição
+(spec login-google §"Fase E → E2"):
+  - isNewUser        -> um User foi CRIADO agora (cadastro via Google)
+  - googleLinkedNow  -> um LinkedAccount foi criado agora para um User que JÁ
+                        existia (auto-ligação)
+Login recorrente (o LinkedAccount já existia) = os dois false. Nunca os dois
+true. Consumidores: tela de boas-vindas (isNewUser), toast de auto-ligação
+(googleLinkedNow), bloqueio de cadastro repetido na tela /register (isNewUser).
+Só chega junto com um par de tokens válido — não é vazamento.
+*/
+export interface GoogleLoginResult {
+  access_token: string;
+  refresh_token: string;
+  isNewUser: boolean;
+  googleLinkedNow: boolean;
+}
+
 @Injectable()
 export class AuthService {
 
@@ -193,7 +212,18 @@ export class AuthService {
     return this.verifyGoogleCredential(credential);
   }
 
-  async loginWithGoogle(credential: string, deviceInfo?: DeviceInfo) {
+  // Compõe o resultado do /auth/google: tokens + os flags do desfecho.
+  private withGoogleFlags(
+    tokens: { access_token: string; refresh_token: string },
+    flags: { isNewUser: boolean; googleLinkedNow: boolean },
+  ): GoogleLoginResult {
+    return { ...tokens, ...flags };
+  }
+
+  async loginWithGoogle(
+    credential: string,
+    deviceInfo?: DeviceInfo,
+  ): Promise<GoogleLoginResult> {
 
     const profile = await this.verifyGoogleCredential(credential);
 
@@ -217,7 +247,12 @@ export class AuthService {
           'Não foi possível validar seu login com o Google. Tente de novo.',
         );
       }
-      return this.generateTokens(user.id, user.email, deviceInfo);
+      // login recorrente: o vínculo já existia, nada foi criado agora
+      const tokens = await this.generateTokens(user.id, user.email, deviceInfo);
+      return this.withGoogleFlags(tokens, {
+        isNewUser: false,
+        googleLinkedNow: false,
+      });
     }
 
     // 2. Já existe um User com este e-mail? -> auto-ligação.
@@ -252,7 +287,16 @@ export class AuthService {
         });
         return user;
       });
-      return this.generateTokens(created.id, created.email, deviceInfo);
+      // cadastro novo via Google
+      const tokens = await this.generateTokens(
+        created.id,
+        created.email,
+        deviceInfo,
+      );
+      return this.withGoogleFlags(tokens, {
+        isNewUser: true,
+        googleLinkedNow: false,
+      });
     } catch (err) {
       if (!this.isUniqueConstraintError(err)) {
         throw err;
@@ -264,11 +308,13 @@ export class AuthService {
     }
   }
 
+  // Sempre chamada quando um LinkedAccount está sendo criado AGORA para um
+  // User que já existia -> googleLinkedNow: true, isNewUser: false.
   private async linkGoogleAndIssue(
     user: { id: string; email: string; emailVerified: boolean },
     profile: { sub: string; email: string },
     deviceInfo?: DeviceInfo,
-  ) {
+  ): Promise<GoogleLoginResult> {
     try {
       await this.prisma.linkedAccount.create({
         data: {
@@ -299,13 +345,17 @@ export class AuthService {
       });
     }
 
-    return this.generateTokens(user.id, user.email, deviceInfo);
+    const tokens = await this.generateTokens(user.id, user.email, deviceInfo);
+    return this.withGoogleFlags(tokens, {
+      isNewUser: false,
+      googleLinkedNow: true,
+    });
   }
 
   private async resolveGoogleAfterRace(
     profile: { sub: string; email: string },
     deviceInfo?: DeviceInfo,
-  ) {
+  ): Promise<GoogleLoginResult> {
     const link = await this.prisma.linkedAccount.findUnique({
       where: {
         provider_providerAccountId: {
@@ -320,7 +370,16 @@ export class AuthService {
         where: { id: link.userId },
       });
       if (user) {
-        return this.generateTokens(user.id, user.email, deviceInfo);
+        // o vínculo foi criado pela requisição concorrente, não por esta
+        const tokens = await this.generateTokens(
+          user.id,
+          user.email,
+          deviceInfo,
+        );
+        return this.withGoogleFlags(tokens, {
+          isNewUser: false,
+          googleLinkedNow: false,
+        });
       }
     }
 

@@ -801,9 +801,12 @@ describe('AuthService', () => {
 
       const result = await service.loginWithGoogle(validCredential);
 
+      // login recorrente (E2): o vínculo já existia -> os dois flags false
       expect(result).toEqual({
         access_token: 'access-token',
         refresh_token: 'refresh-token',
+        isNewUser: false,
+        googleLinkedNow: false,
       });
       expect(prisma.user.create).not.toHaveBeenCalled();
       expect(prisma.linkedAccount.create).not.toHaveBeenCalled();
@@ -819,6 +822,8 @@ describe('AuthService', () => {
       const result = await service.loginWithGoogle(validCredential);
 
       expect(result.access_token).toBe('access-token');
+      // cadastro novo via Google (E2)
+      expect(result).toMatchObject({ isNewUser: true, googleLinkedNow: false });
 
       const userData = prisma.user.create.mock.calls[0][0].data;
       expect(userData).toMatchObject({
@@ -852,6 +857,8 @@ describe('AuthService', () => {
       const result = await service.loginWithGoogle(validCredential);
 
       expect(result.access_token).toBe('access-token');
+      // auto-ligação (E2): User já existia, vínculo criado agora
+      expect(result).toMatchObject({ isNewUser: false, googleLinkedNow: true });
       expect(prisma.user.create).not.toHaveBeenCalled();
       // auto-link não mexe em password/name -> nenhum update (emailVerified já true)
       expect(prisma.user.update).not.toHaveBeenCalled();
@@ -897,9 +904,13 @@ describe('AuthService', () => {
 
       const result = await service.loginWithGoogle(validCredential);
 
+      // corrida (E2): o vínculo do vencedor foi encontrado na re-resolução,
+      // esta requisição não criou nada -> isNewUser false
       expect(result).toEqual({
         access_token: 'access-token',
         refresh_token: 'refresh-token',
+        isNewUser: false,
+        googleLinkedNow: false,
       });
     });
 
