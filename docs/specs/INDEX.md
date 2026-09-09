@@ -10,6 +10,8 @@ no mesmo commit — e `/docs-sync` confere se ela bate com a realidade.
 | Perfis de resposta do VoxAI | — *(não precisa: já entregue)* | `tasks/vox-profiles-plan.md` | `tasks/vox-profiles-todo.md` | `oratio/docs/tasks/vox-profiles-todo.md` | ✅ **em produção** (`main`: 2 campos no schema, 6 perfis com `systemAppend`, 3 rotas; `db push` aplicado) |
 | Bíblia de Estudo | — *(não precisa: já entregue)* | `tasks/biblia-plan.md` | `tasks/biblia-todo.md` | `oratio/docs/tasks/biblia-*.md` | ✅ **em produção** (B1–B3 na `main`; `npx jest bible` → 4 suítes, 39 testes verdes) |
 | Entrar com Google | `specs/login-google.md` | `tasks/login-google-plan.md` | `tasks/login-google-todo.md` | `oratio/docs/specs/login-google.md` (ponteiro) | 🚧 **Fases A–E na `develop`** dos dois repos. Fase E (2026-09-09): reverte a anti-enumeração do login, `isNewUser`/`googleLinkedNow` no `POST /auth/google`, bloqueio de cadastro repetido, toast de auto-ligação, rótulo do botão, loading state, exclusão de conta só-Google, aviso "Defina uma senha" no Perfil. **⚠️ NÃO pronta pra `main`: BUG-E1 de CSS em aberto** (balão do aviso "Defina uma senha" recortado no desktop — ver `specs/login-google.md` → "Fase E → Bugs conhecidos"). Pendências humanas: env vars Vercel/Render, cliente OAuth no Google Cloud Console, teste manual + verificação pós-deploy da CSP. `db push` de produção FEITO (2026-09-09). |
+| Boas-vindas (guia de primeira entrada) | `specs/boas-vindas.md` | *(a criar)* | *(a criar)* | `oratio/docs/specs/boas-vindas.md` (ponteiro, a criar) | ✅ **aprovada** — guia de 3 páginas na 1ª entrada (senha e Google), 1x só. Backend: `User.welcomeSeenAt` (paralelo a `voxOnboardingSeenAt`) + `showWelcome` no `GET /users/me` + `POST /users/me/welcome-seen` + **backfill** `welcomeSeenAt=now()` em toda a tabela. **`db push` próprio** (o do login-google já foi rodado 2026-09-09; esta coluna não pega carona) + `UPDATE` do backfill na mesma janela. Falta plano/checklist. |
+| Admin: método de entrada | `specs/admin-provedor.md` | *(a criar)* | *(a criar)* | `oratio/docs/specs/admin-provedor.md` (ponteiro, a criar) | ✅ **aprovada** — ver/filtrar Oratio × Google × ambos no painel admin. Só leitura: `hasPassword` + `authProviders` no `GET /users/admin/users` e no detalhe, filtro `provider`, ícones (`Mail` / Google) no frontend. **Sem schema, sem `db push`.** Falta plano/checklist. |
 | Prova de identidade (reautenticação p/ operações sensíveis) | `specs/prova-identidade.md` | *(a criar)* | *(a criar)* | `oratio/docs/specs/prova-identidade.md` (ponteiro, a criar) | 📝 **rascunho** — spec spawned do teste da Fase E. Uma causa (o backend trata a senha como prova única) → dois sintomas: (1) não dá pra excluir conta com o Google se você tem senha; (2) não há "esqueci minha senha atual" dentro do app. Primitiva `assertFreshProof` (senha **ou** Google fresco). Sem schema, sem `db push`. 2 questões abertas (spec própria × Fase F; rota de forgot-self). |
 
 ## Legenda de status
@@ -48,11 +50,16 @@ listada é tão ruim quanto pendência não registrada.**
   recortado no desktop) **antes** de a Fase E ir pra `main`. Detalhe e correção proposta em
   `specs/login-google.md` → "Fase E → Bugs conhecidos". É código, não deploy — mas está listado
   aqui porque bloqueia a promoção pra `main`.
+- **boas-vindas** — `npx prisma db push` de produção **próprio** para `User.welcomeSeenAt` (o do
+  login-google já foi; esta coluna não pega carona) **+** o `UPDATE` do backfill
+  `welcomeSeenAt = now()` logo em seguida, na mesma janela. Script
+  `prisma/db-scripts/2026-09-09-boas-vindas.sql` com passos numerados (contagem antes · ALTER ·
+  UPDATE · conferência) — gerado por `/db-change` na implementação.
 
 O `db push` de produção do **login-google** foi feito em 2026-09-09 (Supabase; `LinkedAccount`
-+ `password` nullable). O `db push` do VoxAI e o aceite doutrinário dos perfis também já haviam
-sido feitos — removidos em 2026-09-04. `google-auth-library` foi aprovada (2026-09-08) e já está
-no `package.json`.
++ `password` nullable). O do VoxAI e o aceite doutrinário dos perfis também já haviam sido
+feitos — removidos em 2026-09-04. `google-auth-library` foi aprovada (2026-09-08) e já está no
+`package.json`.
 
 ## Dívidas conhecidas
 
