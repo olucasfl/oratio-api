@@ -104,13 +104,14 @@ describe('UsersController (delegation)', () => {
   it('getAllUsers() converts string query params into the typed filters object', () => {
     userService.getAllUsers.mockReturnValue('users');
 
-    controller.getAllUsers(authed('admin-1'), 'maria', 'true', 'false', '30');
+    controller.getAllUsers(authed('admin-1'), 'maria', 'true', 'false', '30', 'google');
 
     expect(userService.getAllUsers).toHaveBeenCalledWith('admin-1', {
       search: 'maria',
       isAdmin: true,
       emailVerified: false,
       activeLastDays: 30,
+      provider: 'google',
     });
   });
 
@@ -124,7 +125,26 @@ describe('UsersController (delegation)', () => {
       isAdmin: undefined,
       emailVerified: undefined,
       activeLastDays: undefined,
+      provider: undefined,
     });
+  });
+
+  it('getAllUsers() passes provider oratio/google/both through and ignores anything else', () => {
+    userService.getAllUsers.mockReturnValue('users');
+
+    for (const value of ['oratio', 'google', 'both']) {
+      controller.getAllUsers(authed('admin-1'), undefined, undefined, undefined, undefined, value);
+      expect(userService.getAllUsers).toHaveBeenLastCalledWith(
+        'admin-1',
+        expect.objectContaining({ provider: value }),
+      );
+    }
+
+    controller.getAllUsers(authed('admin-1'), undefined, undefined, undefined, undefined, 'banana');
+    expect(userService.getAllUsers).toHaveBeenLastCalledWith(
+      'admin-1',
+      expect.objectContaining({ provider: undefined }),
+    );
   });
 
   it('getUserDetail() rejects without a userId', () => {

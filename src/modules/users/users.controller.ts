@@ -85,6 +85,7 @@ export class UsersController {
     @Query('isAdmin') isAdmin?: string,
     @Query('emailVerified') emailVerified?: string,
     @Query('activeLastDays') activeLastDays?: string,
+    @Query('provider') provider?: string,
   ) {
     const userId = req?.user?.userId;
 
@@ -97,6 +98,12 @@ export class UsersController {
       isAdmin: isAdmin === 'true' ? true : isAdmin === 'false' ? false : undefined,
       emailVerified: emailVerified === 'true' ? true : emailVerified === 'false' ? false : undefined,
       activeLastDays: activeLastDays ? parseInt(activeLastDays) : undefined,
+      // Mesmo parsing tolerante de isAdmin/emailVerified: valor fora do
+      // esperado vira undefined (sem filtro), nunca 400.
+      provider:
+        provider === 'oratio' || provider === 'google' || provider === 'both'
+          ? (provider as 'oratio' | 'google' | 'both')
+          : undefined,
     };
 
     return this.userService.getAllUsers(userId, filters);

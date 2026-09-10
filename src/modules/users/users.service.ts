@@ -569,7 +569,16 @@ export class UsersService {
     }
   }
 
-  async getAllUsers(userId: string, filters?: { search?: string; isAdmin?: boolean; emailVerified?: boolean; activeLastDays?: number }) {
+  async getAllUsers(
+    userId: string,
+    filters?: {
+      search?: string;
+      isAdmin?: boolean;
+      emailVerified?: boolean;
+      activeLastDays?: number;
+      provider?: 'oratio' | 'google' | 'both';
+    },
+  ) {
     await this.assertAdmin(userId);
 
     const where: any = {};
@@ -588,6 +597,21 @@ export class UsersService {
     if (filters?.emailVerified !== undefined) {
         where.emailVerified = filters.emailVerified;
       }
+
+    // Método de entrada (spec admin-provedor). Três estados, não dois: uma
+    // conta pode ter senha E Google ao mesmo tempo. As cláusulas entram no
+    // mesmo `where` (AND com os outros filtros). Valor inválido já virou
+    // `undefined` no controller — aqui não cai em nenhum ramo.
+    if (filters?.provider === 'oratio') {
+      where.password = { not: null };
+      where.linkedAccounts = { none: {} };
+    } else if (filters?.provider === 'google') {
+      where.password = null;
+      where.linkedAccounts = { some: { provider: 'google' } };
+    } else if (filters?.provider === 'both') {
+      where.password = { not: null };
+      where.linkedAccounts = { some: {} };
+    }
 
         if (filters?.activeLastDays) {
     const daysAgo = new Date();
@@ -618,7 +642,7 @@ export class UsersService {
     ];
   }
 
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where,
       select: {
         id: true,
@@ -628,11 +652,21 @@ export class UsersService {
         emailVerified: true,
         isAdmin: true,
         spiritualStats: true,
+        // Só para derivar os booleanos — o hash NUNCA vai no retorno (mapeia
+        // e descarta, como `getProfile`).
+        password: true,
+        linkedAccounts: { select: { provider: true } },
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
+
+    return users.map(({ password, linkedAccounts, ...rest }) => ({
+      ...rest,
+      hasPassword: password != null,
+      authProviders: linkedAccounts.map((l) => l.provider),
+    }));
   }
 
   async getUserDetail(userId: string, targetUserId: string) {
@@ -657,6 +691,10 @@ export class UsersService {
         },
         consecrations: true,
         completedConsecrationDays: true,
+        // Método de entrada (spec admin-provedor) — hash descartado, só o
+        // booleano e a lista de provedores vão no corpo.
+        password: true,
+        linkedAccounts: { select: { provider: true } },
       },
     });
 
@@ -664,11 +702,15 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
+    const { password, linkedAccounts, ...safe } = user;
+
     return {
-      ...user,
+      ...safe,
+      hasPassword: password != null,
+      authProviders: linkedAccounts.map((l) => l.provider),
       consecration: {
-        started: user.consecrations.length > 0,
-        daysCompleted: user.completedConsecrationDays.length,
+        started: safe.consecrations.length > 0,
+        daysCompleted: safe.completedConsecrationDays.length,
       },
       consecrations: undefined,
       completedConsecrationDays: undefined,
