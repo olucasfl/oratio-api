@@ -1,8 +1,8 @@
 # Spec: prova-identidade — reautenticação para operações sensíveis
 
-> Status: **rascunho** (2026-09-09) — proposta com raciocínio, aguarda "ok"
-> Plano: `docs/tasks/prova-identidade-plan.md` · Checklist: `docs/tasks/prova-identidade-todo.md` *(a criar)*
-> Frontend pareado: `oratio/docs/specs/prova-identidade.md` (ponteiro)
+> Status: **aprovada** (2026-09-10)
+> Plano/Checklist: **nenhum** — mudança pequena, vai direto ao código (decisão do humano, 2026-09-10).
+> Frontend pareado: `oratio/docs/specs/prova-identidade.md` (ponteiro, a criar junto do commit do frontend)
 
 ## Objetivo
 
@@ -26,33 +26,39 @@ partir de **o que a conta realmente tem**.
 - `DeleteAccountModal` (frontend): ramifica em `hasPassword` — `true` → campo de senha e nada
   mais; o Google fica invisível mesmo estando ligado.
 - `UsersService.changePassword` / `setPassword`: "Trocar senha" exige `currentPassword`;
-  "Definir senha" só funciona quando **não há** senha. Não há terceira porta.
+  "Definir senha" só funciona quando **não há** senha. Não há terceira porta — quem esqueceu a
+  senha precisa **deslogar** para usar "Esqueci minha senha" da tela de login.
 
-Especificar as duas correções **juntas** porque compartilham a mesma primitiva — a "prova de
-identidade fresca". Separadas, viram duas mudanças que se contradizem no `users.service`.
+As duas correções andam juntas porque nascem da mesma lacuna ("já provei quem sou com o token,
+mas o app me trata como anônimo"). O **sintoma 1** mexe no backend (a decisão de qual prova
+aceitar); o **sintoma 2** é resolvido **só no frontend**, reusando o fluxo
+`forgot-password` → `reset-password` que já existe — sem rota nova
+(decisão do humano, 2026-09-10).
 
 ## Stack
 
 Padrão da casa. **Sem mudança de schema, sem `db push`** — `LinkedAccount`, `User.password`
-nullable e `AuthService.verifyGoogleIdentity` já existem (login-google). É só afrouxar os
-`if`s do `users.service` e ajustar DTOs/telas. O `passwordResetToken` mecanismo já existe.
+nullable e `AuthService.verifyGoogleIdentity` já existem (login-google). É afrouxar um `if` no
+`deleteAccount`, expor um flag aditivo no `GET /users/me`, e mexer em duas telas. O fluxo
+`forgot-password` → `reset-password` já existe e é reusado inteiro para o sintoma 2.
 
 ## Comportamento esperado
 
 ### A primitiva — `assertFreshProof(userId, proof)`
 
-Um helper novo em `UsersService` (ou `AuthService`), reusado pela exclusão e pela troca de senha
-sem a atual. `proof: { password?: string; googleCredential?: string }`:
+Um helper em `UsersService` que centraliza "esta requisição traz uma prova de identidade fresca?".
+Hoje só o `deleteAccount` o consome; fica pronto para reuso. `proof: { password?: string; googleCredential?: string }`:
 
 1. Carrega o `user` (com `password`) e os `LinkedAccount` `google` dele.
 2. **Se `proof.password` veio E `user.password != null`:** `bcrypt.compare`. Bateu → prova
-   válida. Não bateu → 401 `{ message: "Invalid credentials" }` (mesma mensagem de sempre).
+   válida. Não bateu → 401 `Senha incorreta` (mensagem que o `deleteAccount` já usa hoje).
 3. **Senão, se `proof.googleCredential` veio:** `AuthService.verifyGoogleIdentity(credential)`
    (o mesmo helper do `POST /auth/google` — assinatura, `aud`, `exp`, `email_verified`), e
    `payload.sub` tem que casar **um `LinkedAccount` `google` deste `userId`**. Bateu → prova
    válida. `sub` de outra conta / sem `LinkedAccount` → **400** (não 500). `credential`
    inválido/expirado → o **401** do helper propaga.
-4. **Nenhuma prova válida** → **400** `{ message: "Não foi possível confirmar sua identidade." }`.
+4. **Nenhuma prova válida** → **400** `Não foi possível confirmar sua identidade para excluir a
+   conta.` (mensagem que o ramo só-Google já usa hoje).
 
 **Por que a segurança NÃO afrouxa.** A propriedade que importa —
 *"uma sessão roubada não pode, sozinha, apagar a conta"* (`ARCHITECTURE.md` §7) — continua
@@ -69,37 +75,46 @@ o dono legítimo** que perdeu acesso a um dos dois métodos.
 - `DeleteAccountDto` já é `{ password?, googleCredential? }`. `deleteAccount` passa a chamar
   `assertFreshProof` em vez do `if (!user.password)` atual. A ordem de tentativa é a da
   primitiva (senha primeiro se veio e existe; senão Google).
+- **`GET /users/me` ganha `hasGoogle: boolean`** (aditivo, ao lado do `hasPassword` que já
+  existe) — lê `LinkedAccount` `provider = 'google'` deste usuário. Sem isso o frontend não tem
+  como saber que a conta tem **os dois** métodos. Sem schema, sem `db push`.
 - **Frontend (`DeleteAccountModal`):** deixa de ramificar rígido em `hasPassword`. Passa a
   oferecer, depois que o e-mail confere:
-  - conta **só senha** → campo de senha (como hoje);
-  - conta **só Google** → botão de reautenticação Google (como a E7 já faz);
-  - conta **com os dois** → campo de senha **+** um link "Não lembro minha senha" que troca
-    para o botão de reautenticação Google. A pessoa usa o que conseguir.
+  - conta **só senha** (`hasPassword && !hasGoogle`) → campo de senha (como hoje);
+  - conta **só Google** (`!hasPassword`) → botão de reautenticação Google (como a E7 já faz);
+  - conta **com os dois** (`hasPassword && hasGoogle`) → campo de senha **+** um link
+    "Não lembro minha senha" que troca para o botão de reautenticação Google. A pessoa usa o
+    que conseguir.
 - Falhas: senha errada → 401 + mensagem, conta intacta; Google de outra conta → 400 + mensagem,
   conta intacta, **nenhum token limpo**.
 
-### Correção do sintoma 2 — definir senha nova sem a atual
+### Correção do sintoma 2 — trocar senha sem lembrar a atual
 
-- **Conta com Google ligado:** em "Trocar senha", um link **"Não lembro minha senha atual"** →
-  reautentica pelo Google → abre o formulário de senha nova (novo + confirmar, **sem** campo de
-  senha atual). `POST /users/me/set-password` passa a aceitar
-  `{ password, confirmPassword, googleCredential? }`:
-  - `user.password == null` → como hoje (primeira senha, sem prova).
-  - `user.password != null` **e** `googleCredential` válido para este user (via
-    `assertFreshProof`) → grava a senha nova **e revoga todas as `RefreshSession`** (uma
-    credencial que valia deixou de valer — mesma regra do `changePassword`/`resetPassword`).
-  - `user.password != null` sem prova válida → **409**, "use Trocar senha".
-- **Conta só senha que esqueceu a senha:** não há como provar sem um segundo método. O link
-  "Não lembro minha senha atual" dispara o `requestPasswordReset` **do próprio e-mail** (a
-  pessoa está autenticada, sabemos o e-mail) e abre o `ResetPasswordModal` que **já existe** —
-  sem sair do app. O reset revoga sessões (correto) e a pessoa entra de novo com a senha que
-  acabou de definir. **Reusa o `forgot`→`reset` inteiro; nada novo no backend.**
+**Só frontend. Um mecanismo para todos.** No `ChangePasswordModal` (fluxo de "Trocar senha"), um
+link **"Não lembro minha senha atual"** que:
+
+1. chama `POST /auth/forgot-password` (público, já existe) com **o e-mail da própria pessoa** —
+   ela está autenticada, o frontend já tem o e-mail do perfil;
+2. abre o `ResetPasswordModal`, que **já existe**, para ela colar o token do e-mail e definir a
+   senha nova, **sem sair do app**.
+
+O `reset-password` já revoga todas as `RefreshSession` (correto — a senha antiga deixou de
+valer) e a pessoa entra de novo com a senha que acabou de definir.
+
+- **Vale para conta só-senha e para conta com os dois métodos** — o caminho é o mesmo.
+- **Conta só-Google** não tem "Trocar senha" (usa "Definir senha", que não pede a atual) —
+  fora do alcance deste link.
+- `POST /auth/forgot-password` é idempotente e genérico (responde igual exista ou não a conta);
+  chamá-lo autenticado com o próprio e-mail não vaza nada e não precisa de rota nova
+  (decisão do humano, 2026-09-10 — a alternativa da rota autenticada dedicada só valeria para
+  telemetria separada de "reset a partir de logado", que ninguém pediu).
 
 ### Sem autenticação / sem permissão
 
-Todas as rotas afetadas continuam sob `JwtAuthGuard` + throttle 5/60s. `userId` vem sempre de
-`req.user.userId`. O `googleCredential` no corpo é **prova**, não identidade — nunca substitui o
-token.
+`DELETE /users/me` e `GET /users/me` continuam sob `JwtAuthGuard` + throttle. `userId` vem
+sempre de `req.user.userId`. O `googleCredential` no corpo é **prova**, não identidade — nunca
+substitui o token. O `POST /auth/forgot-password` do sintoma 2 é o mesmo endpoint público de
+sempre — nada muda nele.
 
 ### Timezone
 
@@ -114,30 +129,24 @@ Não se aplica.
 - `assertFreshProof` decide. Prova ausente/inválida → 400; `credential` malformado → 401;
   sucesso → 200 + conta apagada (cascade).
 
-### `POST /users/me/set-password` (alteração de DTO + comportamento)
+### `GET /users/me` (campo aditivo)
 
-- DTO passa a `{ password, confirmPassword, googleCredential? }`.
-- `user.password == null` → grava (sem prova). `user.password != null` + `googleCredential`
-  válido → grava **e revoga `RefreshSession`s**. `user.password != null` sem prova → 409.
-- 400 (senhas diferentes), 401 (sem token / `credential` inválido), 409 (já tem senha e sem
-  prova), 429.
+- Resposta ganha `hasGoogle: boolean` ao lado de `hasPassword` — `true` quando existe um
+  `LinkedAccount` `provider = 'google'` deste usuário. Nenhum campo removido ou renomeado.
 
-### `POST /users/me/forgot-password-self` *(a confirmar se precisa de rota nova)*
+### `POST /auth/forgot-password` (inalterado — só passa a ser chamado de outro lugar)
 
-- Alternativa 1: **rota nova** autenticada que chama `requestPasswordReset(req.user.email)` —
-  explícita, sem depender do frontend saber o e-mail.
-- Alternativa 2: o frontend, autenticado, chama o `POST /auth/forgot-password` **público** que
-  já existe, passando o próprio e-mail (que ele tem do perfil). Zero backend novo.
-- **Proposta:** alternativa 2 — nada novo, e o `forgot-password` já é idempotente e genérico.
-  A rota nova só valeria se quiséssemos telemetria separada de "reset a partir de logado".
+- O frontend autenticado o chama com o próprio e-mail no sintoma 2. Contrato, guards e throttle
+  intactos.
 
-### Frontend (detalhe em `oratio/docs/specs/prova-identidade.md`)
+### Frontend (detalhe em `oratio/docs/specs/prova-identidade.md`, a criar)
 
-- `DeleteAccountModal` — três modos (só senha / só Google / os dois com fallback).
-- "Trocar senha" (`AccountSettings` / `ChangePasswordModal`) — link "Não lembro minha senha
-  atual"; ramifica em `authProviders`/`hasPassword` do perfil.
-- `profileService.setPassword` aceita `googleCredential` opcional.
-- Reautenticação Google reusa `GoogleSignInButton` (como a E7).
+- `DeleteAccountModal` — três modos, a partir de `hasPassword` + `hasGoogle` do perfil: só senha
+  / só Google / os dois (senha + link "Não lembro minha senha" → botão Google).
+- `ChangePasswordModal` — link "Não lembro minha senha atual" → `forgotPassword(profile.email)`
+  → abre `ResetPasswordModal` (ambos já existem).
+- `profileService` / tipo do perfil ganham `hasGoogle`.
+- Reautenticação Google no `DeleteAccountModal` reusa `GoogleSignInButton` (como a E7).
 
 ## Modelo de dados
 
@@ -146,51 +155,48 @@ já existem.
 
 ## Critérios de aceite (testáveis, em BDD)
 
-### Backend
+### Backend — cobertos por teste automatizado (os dois pedidos)
 
 - [ ] **Dado** um `User` com `password != null` **e** um `LinkedAccount` `google`, **quando**
-  `DELETE /users/me` com um `googleCredential` fresco cujo `sub` casa esse `LinkedAccount`,
-  **então** 200 e a conta é apagada (o teste asserta que `bcrypt.compare` **não** foi chamado e
-  `verifyGoogleIdentity` **foi**).
-- [ ] **Dado** o mesmo `User`, **quando** `DELETE /users/me` com `password` **correto**, **então**
-  200 e a conta é apagada (o caminho da senha continua valendo).
-- [ ] **Dado** o mesmo `User`, **quando** `DELETE /users/me` com um `googleCredential` cujo `sub`
-  é de **outro** user, **então** 400, `user.delete` **não** chamado.
-- [ ] **Dado** o mesmo `User`, **quando** `DELETE /users/me` com `password` **errado** e sem
-  `googleCredential`, **então** 401, `user.delete` **não** chamado.
-- [ ] **Dado** um `User` com `password != null` e Google ligado, **quando**
-  `POST /users/me/set-password` com senhas válidas iguais **e** `googleCredential` válido,
-  **então** 200, `user.update` grava o hash novo **e** `refreshSession.deleteMany` **é** chamado.
-- [ ] **Dado** o mesmo `User`, **quando** `POST /users/me/set-password` **sem** `googleCredential`,
-  **então** 409 (use "Trocar senha") e a senha não muda.
-- [ ] **Dado** um `User` **só senha** (sem Google), **quando** `POST /users/me/set-password` com
-  `googleCredential` qualquer, **então** 409 (não há `LinkedAccount` para casar).
-- [ ] **Dado** nenhuma credencial, **quando** `DELETE /users/me` **ou**
-  `POST /users/me/set-password`, **então** 401.
-- [ ] **Dado** um token de **outro** usuário, **quando** `DELETE /users/me` com o
-  `googleCredential` do **próprio** (do token), **então** só a conta **do token** é avaliada —
-  nunca um `userId` de corpo.
+  `DELETE /users/me` com um `googleCredential` cujo `sub` é de **outra** conta (sem
+  `LinkedAccount` deste usuário), **então** 400 e `user.delete` **não** é chamado.
+- [ ] **Dado** um `User` com **os dois métodos**, **quando** `DELETE /users/me` com `password`
+  **correto** (sem `googleCredential`) **ou** com um `googleCredential` fresco cujo `sub` casa um
+  `LinkedAccount` `google` deste usuário (sem `password`), **então** 200 e a conta é apagada nos
+  dois casos.
 
-### Frontend (resumo — completo no par)
+### Backend — verificados por contrato / manualmente
+
+- [ ] **Dado** uma conta só-senha, **quando** `DELETE /users/me` com `password` **errado** e sem
+  `googleCredential`, **então** 401 e `user.delete` **não** é chamado (regressão do caminho
+  antigo — o `users.service.spec.ts` já cobre).
+- [ ] **Dado** nenhuma credencial no corpo, **quando** `DELETE /users/me`, **então** 400
+  ("Não foi possível confirmar sua identidade para excluir a conta.").
+- [ ] **Dado** um token de **outro** usuário, **quando** `DELETE /users/me`, **então** só a
+  conta **do token** é avaliada — `userId` nunca vem do corpo.
+- [ ] **Dado** um `User` com Google ligado, **quando** `GET /users/me`, **então** a resposta
+  traz `hasGoogle: true` (e `false` para quem não tem `LinkedAccount` google).
+
+### Frontend (resumo — completo no par, verificado no navegador pelo humano)
 
 - [ ] **Dado** uma conta com os dois métodos, **quando** abre o `DeleteAccountModal` e confere o
   e-mail, **então** vê o campo de senha **e** o link "Não lembro minha senha"; clicar no link
   troca para o botão de reautenticação Google.
-- [ ] **Dado** "Trocar senha" numa conta com Google, **então** há um link "Não lembro minha
-  senha atual" que leva à reautenticação Google → formulário de senha nova sem "senha atual".
-- [ ] **Dado** "Trocar senha" numa conta **só senha**, **então** o link dispara o
-  `forgot-password` do próprio e-mail e abre o `ResetPasswordModal` **sem** deslogar antes.
+- [ ] **Dado** "Trocar senha" (conta só-senha **ou** com os dois), **então** há um link "Não
+  lembro minha senha atual" que dispara o `forgot-password` do próprio e-mail e abre o
+  `ResetPasswordModal` **sem** deslogar antes.
 
 ## Plano de testes
 
-- **Unitário (Jest):** `users.service.spec.ts` — `assertFreshProof` (os 4 desfechos) + os dois
-  consumidores (`deleteAccount`, `setPassword`) para conta só-senha / só-Google / os-dois.
-  `users.controller.spec.ts` — DTOs, 401 sem token.
-- **Contrato (`curl`):** conta com os dois métodos → `DELETE /users/me` com senha certa → 200;
-  repetir com `googleCredential` (id_token real, como na Fase B) → 200. `set-password` com
-  `googleCredential` numa conta com senha → 200 + sessões revogadas.
-- **Manual (humano):** os três caminhos de exclusão e os dois de "não lembro a senha" no
-  navegador.
+- **Unitário (Jest) — só dois testes novos**, ambos no caminho da exclusão, em
+  `users.service.spec.ts`:
+  1. `googleCredential` cujo `sub` é de **outra** conta → recusa (400) e **não** apaga;
+  2. conta com **os dois métodos** → aceita a senha correta **e** aceita um `googleCredential`
+     válido deste usuário (dois casos, mesma conta).
+  Os testes existentes de `deleteAccount` (só-senha, só-Google, senha errada) continuam verdes
+  como regressão.
+- **Manual (humano, no navegador):** os três modos do `DeleteAccountModal` (só senha / só Google
+  / os dois) e o link "Não lembro minha senha atual" no `ChangePasswordModal`.
 
 Loop de verificação: `npm test -- <pattern>` → `npm test` → `npm run build` → `npm run lint`.
 
@@ -198,26 +204,30 @@ Loop de verificação: `npm test -- <pattern>` → `npm test` → `npm run build
 
 - **Segundo fator / TOTP / e-mail de confirmação de exclusão.** A prova continua sendo senha ou
   Google fresco — não muda o modelo, só amplia.
-- **Reautenticação para outras operações** (trocar e-mail, etc.) — hoje só exclusão e senha
-  entram; a primitiva `assertFreshProof` fica pronta para reuso, mas ampliar o alcance é
-  decisão à parte.
-- **Login com Apple / outros provedores** — `authProviders` já comporta; só `google` existe.
-- **Processo:** atualizar `ARCHITECTURE.md` §7; criar o ponteiro no `oratio`; revisar contrato.
+- **`POST /users/me/set-password` com `googleCredential`** (reautenticar pelo Google para trocar
+  a senha sem a atual). Considerado e descartado: o sintoma 2 é resolvido de graça reusando
+  `forgot-password` → `reset-password`, sem DTO novo nem prova nova no backend.
+- **Reautenticação para outras operações** (trocar e-mail, etc.) — `assertFreshProof` fica
+  pronto para reuso, mas ampliar o alcance é decisão à parte.
+- **Login com Apple / outros provedores** — só `google` existe.
+- **Processo:** atualizar `ARCHITECTURE.md` §7 (feito no commit da implementação); criar o
+  ponteiro no `oratio`; revisar contrato com o frontend.
 
 ## Notas de ambiente
 
 Sem env var nova, sem `db push`, sem custo externo (a verificação do `id_token` busca certs
 cacheados do Google — sem custo por chamada), sem impacto no scheduler.
 
+## Decisões (fechadas 2026-09-10)
+
+- **Spec própria, não Fase F do login-google.** O sintoma 2 não é sobre Google (é lacuna de UX
+  de senha); `login-google` está quase fechando e não deve carregar mais escopo; exclusão de
+  conta é irreversível e merece critérios e rollout próprios.
+- **Reusar `POST /auth/forgot-password` com o próprio e-mail — sem rota nova.** O endpoint já é
+  público, idempotente e genérico; chamá-lo autenticado com o e-mail do perfil não vaza nada.
+- **Sem plano/checklist.** Mudança pequena — vai direto ao código, um commit para a exclusão de
+  conta (backend + `hasGoogle`) e commits de frontend à parte.
+
 ## Questões em aberto
 
-- [ ] **Isolar como spec própria ou virar Fase F do login-google?** **Proposta: spec própria
-  (esta).** Motivos: (a) o **sintoma 2** não é sobre Google — é uma lacuna de UX de senha que
-  existe independente de login social; pendurar em "login-google" rotula errado. (b)
-  `login-google` está entrando na `develop` e quase fechando; uma Fase F atrasa o fechamento e
-  mistura escopos. (c) **exclusão de conta é irreversível** — merece critérios de aceite,
-  revisão e rollout próprios, não diluídos numa fase de outra feature. (d) a primitiva
-  `assertFreshProof` é reusável e conceitualmente "prova de identidade para operação sensível",
-  não "detalhe do login com Google".
-- [ ] **`forgot-password-self`: rota nova ou reusar a pública?** Proposta: reusar a pública
-  (`POST /auth/forgot-password` com o próprio e-mail) — zero backend novo. Confirmar.
+Nenhuma.
