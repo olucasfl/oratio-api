@@ -243,18 +243,18 @@ regressão vs. `develop`
 
 ---
 
-## ⛳ Checkpoint A — revisão humana (PARAR)
+## ⛳ Checkpoint A — revisão humana  *(✅ concluído — Fase A mergeada na `develop`, commit `0cb8af1`)*
 
-- [ ] `npm test` verde · `npm run build` limpo · `npm run lint` sem regressão
-- [ ] `feat/login-google` mergeada na `develop` com `--no-ff` + `git push origin develop`
-- [ ] Entregue ao humano:
-  - [ ] comando exato do `db push` local (`npx prisma db push && npx prisma generate`) + aviso
+- [x] `npm test` verde · `npm run build` limpo · `npm run lint` sem regressão
+- [x] `feat/login-google` mergeada na `develop` com `--no-ff` + `git push origin develop`
+- [x] Entregue ao humano:
+  - [x] comando exato do `db push` local (`npx prisma db push && npx prisma generate`) + aviso
         de que os caminhos "SIM" da tabela do plano dão 500 sem ele
-  - [ ] sequência de `curl` dos caminhos ruins, com o esperado de cada:
+  - [x] sequência de `curl` dos caminhos ruins, com o esperado de cada:
         assinatura inválida · `email_verified:false` · e-mail já existente com senha ·
         conta só-Google tentando login por senha · 409 do `set-password` ·
         409 do `change-password` em conta só-Google
-- [ ] **Não iniciar a Fase B sem retorno do humano**
+- [x] **Não iniciar a Fase B sem retorno do humano**
 
 ---
 
@@ -357,8 +357,8 @@ E3 = logout antes de descartar). Backend nas branches `feat/login-google-fase-e`
 - [x] **Docs** — ponteiro `oratio/docs/specs/login-google.md`, `oratio/docs/tasks/login-google-todo.md`
       (Fase E + premissa do `db push` corrigida), `oratio/docs/ARCHITECTURE.md`. `oratio` commit `298d3e7`.
 
-### Checkpoint E — revisão humana (PARAR)
+### Checkpoint E — revisão humana  *(✅ verificado 2026-09-10 — commit `44b55b7`; BUG-E1 resolvido, sem bloqueio de código pra `main`)*
 
-- [ ] `npm test` verde nos dois repos · `build` · `lint` sem regressão
-- [ ] Humano testa no navegador: `/register` repetido; exclusão de conta só-Google (2 caminhos
-      + 2 falhas); toast de auto-ligação; login por senha numa conta só-Google.
+- [x] `npm test` verde nos dois repos · `build` · `lint` sem regressão
+- [x] Humano testa no navegador: `/register` repetido; exclusão de conta só-Google (2 caminhos
+      + 2 falhas); toast de auto-ligação; login por senha numa conta só-Google. *(7 cenários OK)*
