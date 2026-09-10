@@ -287,11 +287,15 @@ Sem código de backend. O que este repo precisa conferir/entregar:
       frontend (`oratio-phi.vercel.app` / `localhost:5173`) que já está na allowlist. Nenhuma
       origem nova. *(Conferido 2026-09-09.)*
 - [ ] **Humano:** `GOOGLE_CLIENT_ID` nas env vars do Render (= `VITE_GOOGLE_CLIENT_ID` da Vercel).
+- [ ] **Humano:** publicar o app OAuth no Google Cloud Console (sai de "Testing"; exige a
+      Política de Privacidade — dívida registrada). Até publicar, só usuários de teste logam em prod.
 - [x] **Humano:** `npx prisma db push` em **produção** — **feito em 2026-09-09** (Supabase;
       "Your database is now in sync with your Prisma schema"). `LinkedAccount` + `password`
       nullable em produção. Script `prisma/db-scripts/2026-09-08-login-google.sql`.
-- [ ] **Humano:** cliente OAuth "Web application" + tela de consentimento no Google Cloud Console
-      (ver "Notas de ambiente" na spec).
+- [x] **Humano:** cliente OAuth "Web application" + tela de consentimento no Google Cloud Console
+      — **feito em 2026-09-09**: projeto Oratio, consent screen com os 3 escopos não-sensíveis,
+      usuários de teste, cliente "Oratio Web" com origens `http://localhost:5173` +
+      `https://oratio-phi.vercel.app`. Client ID nos `.env` locais dos dois repos.
 
 O código da Fase D (a CSP do GIS no `vercel.json`) está no `oratio`, branch
 `feat/login-google-fase-d`, com o **plano de verificação pós-deploy** em
