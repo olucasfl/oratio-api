@@ -53,6 +53,14 @@ model User {
   // novidade. O onboarding do Vox só aparece enquanto voxProfile E
   // voxOnboardingSeenAt são ambos null.
   voxOnboardingSeenAt DateTime?
+
+  // Carimbado quando a pessoa CONCLUI o guia de boas-vindas (última página).
+  // `GET /users/me` devolve showWelcome = (welcomeSeenAt == null); o guia só
+  // aparece enquanto isto é null. Paralelo a voxOnboardingSeenAt. A migração
+  // faz backfill (welcomeSeenAt = now()) nas contas já existentes, para o
+  // guia só aparecer para quem se cadastrar DEPOIS do deploy
+  // (prisma/db-scripts/2026-09-10-boas-vindas.sql).
+  welcomeSeenAt DateTime?
 }
 
 model PushSubscription {

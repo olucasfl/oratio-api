@@ -111,6 +111,7 @@ export class UsersService {
         emailVerified: true,
         isAdmin: true,
         password: true,
+        welcomeSeenAt: true,
         spiritualStats: true,
         consecrations: true,
         completedConsecrationDays: { select: { id: true } },
@@ -146,6 +147,11 @@ export class UsersService {
     // lê `LinkedAccount`.
     hasGoogle: user.linkedAccounts.length > 0,
 
+    // Guia de boas-vindas: aparece só na primeira entrada, uma vez. Mesmo
+    // desenho de `showVoxIntro` — o shell do frontend redireciona pra
+    // /oratio/boas-vindas enquanto isto for true (spec boas-vindas).
+    showWelcome: user.welcomeSeenAt == null,
+
     spiritualProgress: {
 
     consecrationStarted: user.consecrations.length > 0,
@@ -164,6 +170,34 @@ export class UsersService {
 
   }
 
+  }
+
+  /*
+  =============================
+  GUIA DE BOAS-VINDAS — concluído
+  =============================
+  Carimba `welcomeSeenAt` ao concluir a última página do guia. Espelha
+  `markIntroSeen` do Vox (sem corpo, resposta `{ ok: true }`), mas é
+  IDEMPOTENTE: chamar de novo numa conta que já tem a data não mexe no
+  timestamp — se a pessoa fechar o app no meio, o guia recomeça da página 1
+  no próximo login (welcomeSeenAt segue null), e só o "Começar" da última
+  página encerra pra sempre.
+  */
+  async markWelcomeSeen(userId: string) {
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { welcomeSeenAt: true },
+    });
+
+    if (user && !user.welcomeSeenAt) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { welcomeSeenAt: new Date() },
+      });
+    }
+
+    return { ok: true };
   }
 
   /*
