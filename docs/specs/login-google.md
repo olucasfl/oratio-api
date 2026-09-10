@@ -366,7 +366,9 @@ produção.** Fase E não muda o schema; a spec `boas-vindas` precisa do **próp
   - Smoke no iPhone com o PWA instalado (Fase D) — botão abre o popup e volta pro app sem jogar
     pro Safari.
   - ~~`npx prisma db push` em produção~~ — **feito em 2026-09-09** (Supabase de produção).
-  - Criação do cliente OAuth + tela de consentimento no Google Cloud Console (antes da Fase B).
+  - ~~Criação do cliente OAuth + tela de consentimento no Google Cloud Console~~ — **feito em
+    2026-09-09** (cliente "Oratio Web", consent screen, usuários de teste). Falta **publicar** o
+    app + as env vars de produção.
   - Verificação de CSP no console do navegador após deploy na Vercel (Fase D).
 
 Loop de verificação por tarefa:
@@ -401,8 +403,9 @@ próxima branch.
   `frame-src` a URL-pai `https://accounts.google.com/gsi/` — mais o plano de verificação
   pós-deploy escrito em `oratio/docs/tasks/login-google-todo.md`. `ALLOWED_ORIGINS` conferido,
   inalterado. Humano: ~~`db push` de produção~~ (feito 2026-09-09); env vars (Vercel/Render);
-  origens de produção no Google Cloud Console; smoke no iPhone com PWA instalado; rodar a
-  verificação pós-deploy.
+  ~~origens de produção no Google Cloud Console~~ (feito 2026-09-09 — `oratio-phi.vercel.app` já
+  está no cliente "Oratio Web"); **publicar o app OAuth** (Política de Privacidade); smoke no
+  iPhone com PWA instalado; rodar a verificação pós-deploy.
 
 ## Fase E — mensageria, sinais de resultado, e correções do frontend
 
@@ -741,7 +744,8 @@ Confirmado em `users.service.ts:463` (`if (!link || link.userId !== userId)`).
 - **Processo de dev, não critério de aceite:**
   - ~~`npx prisma db push` em produção~~ — **feito em 2026-09-09** (Supabase de produção;
     `LinkedAccount` + `password` nullable aplicados).
-  - Criar o cliente OAuth e a tela de consentimento no Google Cloud Console (execução humana).
+  - ~~Criar o cliente OAuth e a tela de consentimento no Google Cloud Console~~ — feito
+    2026-09-09. Falta **publicar** o app + env vars de produção.
   - Adicionar `google-auth-library` ao `package.json` (aprovada; acontece na Fase A).
   - Atualizar `docs/ARCHITECTURE.md` §5/§8/§9 e o §7 (CSP) do `oratio` — no mesmo commit da
     implementação que muda o comportamento.
@@ -755,18 +759,16 @@ Confirmado em `users.service.ts:463` (`if (!link || link.userId !== userId)`).
   - Frontend (Vercel): `VITE_GOOGLE_CLIENT_ID` — **o mesmo valor**.
   - **`client_secret` não é usado** neste fluxo (verificação de `id_token` só precisa do Client
     ID). Não guardar o secret em lugar nenhum.
-- **Google Cloud Console (checklist para o humano):**
-  - Criar *OAuth 2.0 Client ID*, tipo **Web application**, nome ex. "Oratio Web".
-  - *Authorized JavaScript origins:* `http://localhost:5173` (Vite dev) e
-    `https://oratio-phi.vercel.app` (produção). **Não** precisa `http://localhost:3000` — o GIS
-    carrega na origem do frontend, não da API.
-  - *Authorized redirect URIs:* **nenhuma** (fluxo popup + callback JS; deixar vazio).
-  - *OAuth consent screen:* User type **External**; App name "Oratio"; e-mails de suporte e de
-    contato; *Authorized domains:* `vercel.app`. Scopes: `openid`, `.../auth/userinfo.email`,
-    `.../auth/userinfo.profile` — todos **não sensíveis**, sem revisão do Google. *Publishing
-    status:* pode ir a **In production** (seguro só com scopes não sensíveis) ou ficar em
-    **Testing** com usuários de teste.
-  - Copiar o Client ID → `GOOGLE_CLIENT_ID` (Render) e `VITE_GOOGLE_CLIENT_ID` (Vercel).
+- **Google Cloud Console — FEITO em 2026-09-09** (registro do que foi criado):
+  - Projeto **Oratio**. Cliente *OAuth 2.0 Client ID* tipo **Web application**, nome **"Oratio
+    Web"**. *Authorized JavaScript origins:* `http://localhost:5173` + `https://oratio-phi.vercel.app`.
+    *Redirect URIs:* nenhuma.
+  - *OAuth consent screen:* User type **External**; os 3 escopos (`openid`, `.../userinfo.email`,
+    `.../userinfo.profile`) — **não sensíveis**, sem revisão; **usuários de teste** adicionados.
+  - Client ID copiado para os `.env` **locais** dos dois repos.
+  - **Falta:** `GOOGLE_CLIENT_ID` (Render) + `VITE_GOOGLE_CLIENT_ID` (Vercel), e mudar o
+    *Publishing status* de **Testing** → **In production** (só usuários de teste logam em prod
+    até publicar; publicar exige a **Política de Privacidade** — dívida em `docs/specs/INDEX.md`).
 - **CSP (`oratio/vercel.json`, bloco `headers`):** adicionar
   - `script-src`: `https://accounts.google.com/gsi/client`
   - `style-src`: `https://accounts.google.com/gsi/style`

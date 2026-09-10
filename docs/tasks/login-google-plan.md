@@ -209,9 +209,11 @@ item a item em `docs/tasks/login-google-todo.md`.
   fontes do GIS na CSP do `oratio/vercel.json` (`script-src`/`style-src`/`connect-src`/`frame-src`,
   valores da doc do Google) + plano de verificação pós-deploy escrito em
   `oratio/docs/tasks/login-google-todo.md`. `ALLOWED_ORIGINS` **conferido, inalterado**.
-  **Humano:** `GOOGLE_CLIENT_ID` (Render) + `VITE_GOOGLE_CLIENT_ID` (Vercel); ~~`npx prisma db push`
-  de produção~~ (feito 2026-09-09, Supabase); cliente OAuth no Google Cloud Console; smoke no
-  iPhone com PWA; rodar a verificação pós-deploy da CSP.
+  **Humano:** `GOOGLE_CLIENT_ID` (Render) + `VITE_GOOGLE_CLIENT_ID` (Vercel) + publicar o app
+  OAuth (Política de Privacidade); ~~`npx prisma db push` de produção~~ (feito 2026-09-09,
+  Supabase); ~~cliente OAuth no Google Cloud Console~~ (feito 2026-09-09 — cliente "Oratio Web",
+  consent screen, usuários de teste); smoke no iPhone com PWA; rodar a verificação pós-deploy da
+  CSP.
 
 ## Riscos e mitigações
 
