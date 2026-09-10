@@ -114,6 +114,10 @@ export class UsersService {
         spiritualStats: true,
         consecrations: true,
         completedConsecrationDays: { select: { id: true } },
+        linkedAccounts: {
+          where: { provider: 'google' },
+          select: { id: true },
+        },
       },
     });
 
@@ -135,6 +139,12 @@ export class UsersService {
     // para mostrar "Definir senha" em vez de "Trocar senha" (que exige a
     // senha atual) — nunca expõe o hash em si.
     hasPassword: user.password != null,
+
+    // Conta com Google ligado. Espelha `hasPassword`: o frontend precisa
+    // saber que a conta tem OS DOIS métodos para oferecer senha + Google no
+    // modal de exclusão (spec prova-identidade). Aditivo, sem schema — só
+    // lê `LinkedAccount`.
+    hasGoogle: user.linkedAccounts.length > 0,
 
     spiritualProgress: {
 
@@ -413,38 +423,55 @@ export class UsersService {
   */
 
   /*
-  Exige uma prova de identidade antes de apagar — sem isso, só a posse do
-  access token (roubável via XSS, dispositivo destravado, etc.) já bastava
-  pra destruir a conta inteira e todo o histórico, sem chance de confirmação
-  nem de estorno.
+  Confirma que a requisição traz uma prova de identidade FRESCA — não só a
+  posse do access token (roubável via XSS, dispositivo destravado, etc.).
+  Hoje só o `deleteAccount` consome; fica pronto para reuso (trocar e-mail,
+  etc.).
 
-  - Conta com senha  -> `password` + `bcrypt.compare` (comportamento antigo).
-  - Conta só-Google  -> `googleCredential`: um id_token fresco do Google,
-    verificado pelo MESMO helper do POST /auth/google, cujo `sub` precisa
-    casar um `LinkedAccount` google DESTE usuário. É a prova equivalente à
-    senha (ARCHITECTURE.md §7). Não conseguir excluir seria problema de
-    LGPD, então algum caminho sem senha precisa existir.
+  Qual prova vale sai do que a conta REALMENTE tem, não de
+  `user.password == null` (era esse o bug: uma conta com senha E Google não
+  alcançava o ramo do Google). Uma conta com os dois métodos prova com
+  qualquer um — quem esqueceu a senha usa o Google, quem está sem o celular
+  usa a senha.
+
+  - `proof.password` + a conta TEM senha -> `bcrypt.compare`. Não bate -> 401.
+  - senão `proof.googleCredential` -> `AuthService.verifyGoogleIdentity` (a
+    MESMA verificação do POST /auth/google: assinatura, `aud`, `exp`,
+    `email_verified`) e o `sub` precisa casar um `LinkedAccount` google
+    DESTE usuário. `sub` de outra conta / sem vínculo -> 400 (nunca 500).
+    `credential` inválido/expirado -> o 401 do verificador propaga.
+  - nenhuma prova válida -> 400.
+
+  A segurança NÃO afrouxa (ARCHITECTURE.md §5/§7): não removemos a exigência
+  de prova, só ampliamos QUAIS provas contam. Um atacante com o access token
+  não sabe a senha e não produz um id_token fresco com o `sub` da vítima —
+  "senha OU Google fresco" não abre nada que "só senha" já não abrisse.
   */
-  async deleteAccount(
+  private async assertFreshProof(
     userId: string,
     proof: { password?: string; googleCredential?: string },
-  ) {
+  ): Promise<void> {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
+      select: { id: true, password: true },
     });
 
     if (!user) {
       throw new UnauthorizedException();
     }
 
-    if (!user.password) {
-      if (!proof.googleCredential) {
-        throw new BadRequestException(
-          'Não foi possível confirmar sua identidade para excluir a conta.',
-        );
+    if (proof.password && user.password != null) {
+      const matches = await bcrypt.compare(proof.password, user.password);
+
+      if (!matches) {
+        throw new UnauthorizedException('Senha incorreta');
       }
 
+      return;
+    }
+
+    if (proof.googleCredential) {
       const identity = await this.authService.verifyGoogleIdentity(
         proof.googleCredential,
       );
@@ -459,31 +486,34 @@ export class UsersService {
       });
 
       // Token válido do Google, mas de outra conta Google que não está
-      // ligada a este usuário -> não é prova para excluir ESTA conta.
+      // ligada a este usuário -> não é prova para esta conta.
       if (!link || link.userId !== userId) {
         throw new BadRequestException(
           'Não foi possível confirmar sua identidade para excluir a conta.',
         );
       }
 
-      await this.prisma.user.delete({
-        where: { id: userId },
-      });
-
-      return {
-        message: 'Account deleted successfully',
-      };
+      return;
     }
 
-    if (!proof.password) {
-      throw new BadRequestException('Senha é obrigatória');
-    }
+    throw new BadRequestException(
+      'Não foi possível confirmar sua identidade para excluir a conta.',
+    );
+  }
 
-    const matches = await bcrypt.compare(proof.password, user.password);
+  /*
+  Apaga a conta (cascade) depois de `assertFreshProof`. Sem essa prova, só a
+  posse do access token já bastava pra destruir a conta inteira e todo o
+  histórico, sem confirmação nem estorno. Não conseguir excluir seria
+  problema de LGPD, por isso a prova aceita senha OU Google — nunca só o
+  token.
+  */
+  async deleteAccount(
+    userId: string,
+    proof: { password?: string; googleCredential?: string },
+  ) {
 
-    if (!matches) {
-      throw new UnauthorizedException('Senha incorreta');
-    }
+    await this.assertFreshProof(userId, proof);
 
     await this.prisma.user.delete({
       where: { id: userId },

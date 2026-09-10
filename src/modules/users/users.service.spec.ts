@@ -203,6 +203,7 @@ describe('UsersService', () => {
         spiritualStats: null,
         consecrations: [],
         completedConsecrationDays: [],
+        linkedAccounts: [{ id: 'la-1' }],
       });
 
       const result = await service.getProfile('user-1');
@@ -215,8 +216,9 @@ describe('UsersService', () => {
         lastPrayerDate: null,
         prayerStreak: 0,
       });
-      // conta só-Google: sem senha
+      // conta só-Google: sem senha, com Google ligado
       expect(result.hasPassword).toBe(false);
+      expect(result.hasGoogle).toBe(true);
     });
 
     it('reports real stats and consecration progress when they exist', async () => {
@@ -238,6 +240,7 @@ describe('UsersService', () => {
         },
         consecrations: [{ id: 'c1' }],
         completedConsecrationDays: [{ id: 'd1' }, { id: 'd2' }],
+        linkedAccounts: [],
       });
 
       const result = await service.getProfile('user-1');
@@ -253,6 +256,8 @@ describe('UsersService', () => {
       // conta com senha, e o hash NUNCA vaza no retorno
       expect(result.hasPassword).toBe(true);
       expect(result).not.toHaveProperty('password');
+      // sem LinkedAccount google
+      expect(result.hasGoogle).toBe(false);
     });
   });
 
@@ -636,6 +641,65 @@ describe('UsersService', () => {
       await expect(
         service.deleteAccount('ghost', { password: 'whatever' }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    /*
+    prova-identidade — a conta agora pode ter OS DOIS métodos (senha E Google).
+    A decisão de qual prova aceitar sai do que a conta tem, não de
+    `password == null`.
+    */
+
+    it('prova-identidade — conta COM senha: googleCredential cujo sub é de OUTRA conta → 400 e nunca chama delete', async () => {
+      const hashed = await bcrypt.hash('SenhaCorreta123', 10);
+      // conta com senha E um LinkedAccount google (mas o sub do token não é dela)
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-both', password: hashed });
+      authService.verifyGoogleIdentity.mockResolvedValue({
+        sub: 'sub-de-outra-conta',
+        email: 'outra@exemplo.com',
+        name: 'Beltrano',
+      });
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.deleteAccount('user-both', { googleCredential: 'token-de-outra-conta' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('prova-identidade — conta COM os dois métodos: aceita a senha correta OU um googleCredential fresco desta conta', async () => {
+      const hashed = await bcrypt.hash('SenhaCorreta123', 10);
+
+      // caso 1: prova por senha, sem googleCredential
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-both', password: hashed });
+      prisma.user.delete.mockResolvedValue({});
+
+      await expect(
+        service.deleteAccount('user-both', { password: 'SenhaCorreta123' }),
+      ).resolves.toEqual({ message: 'Account deleted successfully' });
+      expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-both' } });
+      expect(authService.verifyGoogleIdentity).not.toHaveBeenCalled();
+
+      jest.clearAllMocks();
+
+      // caso 2: MESMA conta, prova por Google fresco cujo sub casa um LinkedAccount dela
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-both', password: hashed });
+      authService.verifyGoogleIdentity.mockResolvedValue({
+        sub: 'google-sub-both',
+        email: 'usuario@exemplo.com',
+        name: 'Fulano de Tal',
+      });
+      prisma.linkedAccount.findUnique.mockResolvedValue({
+        userId: 'user-both',
+        provider: 'google',
+        providerAccountId: 'google-sub-both',
+      });
+      prisma.user.delete.mockResolvedValue({});
+
+      await expect(
+        service.deleteAccount('user-both', { googleCredential: 'token-fresco-desta-conta' }),
+      ).resolves.toEqual({ message: 'Account deleted successfully' });
+      expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-both' } });
     });
   });
 
