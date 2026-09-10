@@ -1,8 +1,9 @@
 # Spec: prova-identidade — reautenticação para operações sensíveis
 
-> Status: **aprovada** (2026-09-10)
-> Plano/Checklist: **nenhum** — mudança pequena, vai direto ao código (decisão do humano, 2026-09-10).
-> Frontend pareado: `oratio/docs/specs/prova-identidade.md` (ponteiro, a criar junto do commit do frontend)
+> Status: **implementada, na `develop` dos dois repos** (2026-09-10) — falta o teste manual humano
+> (os 3 modos do `DeleteAccountModal` + o link no `ChangePasswordModal`, na tela) e a promoção pra `main`.
+> Plano/Checklist: **nenhum** — mudança pequena, foi direto ao código (decisão do humano, 2026-09-10).
+> Frontend pareado: `oratio/docs/specs/prova-identidade.md` (ponteiro)
 
 ## Objetivo
 
@@ -157,25 +158,27 @@ já existem.
 
 ### Backend — cobertos por teste automatizado (os dois pedidos)
 
-- [ ] **Dado** um `User` com `password != null` **e** um `LinkedAccount` `google`, **quando**
+- [x] **Dado** um `User` com `password != null` **e** um `LinkedAccount` `google`, **quando**
   `DELETE /users/me` com um `googleCredential` cujo `sub` é de **outra** conta (sem
   `LinkedAccount` deste usuário), **então** 400 e `user.delete` **não** é chamado.
-- [ ] **Dado** um `User` com **os dois métodos**, **quando** `DELETE /users/me` com `password`
+  *(`users.service.spec.ts` — "conta COM senha: googleCredential cujo sub é de OUTRA conta")*
+- [x] **Dado** um `User` com **os dois métodos**, **quando** `DELETE /users/me` com `password`
   **correto** (sem `googleCredential`) **ou** com um `googleCredential` fresco cujo `sub` casa um
   `LinkedAccount` `google` deste usuário (sem `password`), **então** 200 e a conta é apagada nos
-  dois casos.
+  dois casos. *(`users.service.spec.ts` — "conta COM os dois métodos: aceita a senha correta OU um googleCredential fresco")*
 
 ### Backend — verificados por contrato / manualmente
 
-- [ ] **Dado** uma conta só-senha, **quando** `DELETE /users/me` com `password` **errado** e sem
+- [x] **Dado** uma conta só-senha, **quando** `DELETE /users/me` com `password` **errado** e sem
   `googleCredential`, **então** 401 e `user.delete` **não** é chamado (regressão do caminho
   antigo — o `users.service.spec.ts` já cobre).
-- [ ] **Dado** nenhuma credencial no corpo, **quando** `DELETE /users/me`, **então** 400
-  ("Não foi possível confirmar sua identidade para excluir a conta.").
-- [ ] **Dado** um token de **outro** usuário, **quando** `DELETE /users/me`, **então** só a
-  conta **do token** é avaliada — `userId` nunca vem do corpo.
-- [ ] **Dado** um `User` com Google ligado, **quando** `GET /users/me`, **então** a resposta
-  traz `hasGoogle: true` (e `false` para quem não tem `LinkedAccount` google).
+- [x] **Dado** nenhuma credencial no corpo, **quando** `DELETE /users/me`, **então** 400
+  ("Não foi possível confirmar sua identidade para excluir a conta.") — `users.service.spec.ts`.
+- [x] **Dado** um token de **outro** usuário, **quando** `DELETE /users/me`, **então** só a
+  conta **do token** é avaliada — `userId` vem sempre de `req.user.userId` (`users.controller.ts`).
+- [x] **Dado** um `User` com Google ligado, **quando** `GET /users/me`, **então** a resposta
+  traz `hasGoogle: true` (e `false` para quem não tem `LinkedAccount` google) —
+  `users.service.spec.ts` ("getProfile").
 
 ### Frontend (resumo — completo no par, verificado no navegador pelo humano)
 
