@@ -1,7 +1,9 @@
 # Spec: admin-provedor — método de entrada no painel admin
 
-> Status: **aprovada** (2026-09-09) — conceito e questões abertas resolvidas; falta plano/checklist
-> Plano: `docs/tasks/admin-provedor-plan.md` · Checklist: `docs/tasks/admin-provedor-todo.md` *(a criar após "aprovada")*
+> Status: **implementada, na `develop` dos dois repos** (2026-09-10) — só leitura, sem schema, sem
+> `db push`. Falta o teste manual no painel real e a promoção pra `main`.
+> Plano/Checklist: **nenhum** — mudança pequena, foi direto ao código (mesmo precedente de
+> `boas-vindas` e `prova-identidade`, registrados assim no INDEX).
 > Frontend pareado: `oratio/docs/specs/admin-provedor.md` (ponteiro)
 
 ## Objetivo
@@ -116,28 +118,28 @@ já existem (spec `login-google`). Esta feature só **lê** — novos `select` e
 
 ### Backend
 
-- [ ] **Dado** um `User` com `password != null` e sem `LinkedAccount`, **quando**
+- [x] **Dado** um `User` com `password != null` e sem `LinkedAccount`, **quando**
   `GET /users/admin/users` como admin, **então** esse usuário vem com `hasPassword: true` e
   `authProviders: []`, e o corpo **não** tem `password`.
-- [ ] **Dado** um `User` com `password == null` e um `LinkedAccount` `google`, **quando**
+- [x] **Dado** um `User` com `password == null` e um `LinkedAccount` `google`, **quando**
   `GET /users/admin/users` como admin, **então** `hasPassword: false`, `authProviders: ["google"]`.
-- [ ] **Dado** um `User` com `password != null` e um `LinkedAccount` `google`, **quando**
+- [x] **Dado** um `User` com `password != null` e um `LinkedAccount` `google`, **quando**
   `GET /users/admin/users` como admin, **então** `hasPassword: true`, `authProviders: ["google"]`.
-- [ ] **Dado** a base com contas dos três tipos, **quando** `GET /users/admin/users?provider=oratio`,
+- [x] **Dado** a base com contas dos três tipos, **quando** `GET /users/admin/users?provider=oratio`,
   **então** só as contas **com senha e sem `LinkedAccount`** voltam (o teste asserta o `where`
   passado ao `prisma.user.findMany`).
-- [ ] **Dado** o mesmo, **quando** `?provider=google`, **então** só contas **sem senha e com
+- [x] **Dado** o mesmo, **quando** `?provider=google`, **então** só contas **sem senha e com
   `LinkedAccount` google**; **quando** `?provider=both`, só contas **com senha e com
   `LinkedAccount`**.
-- [ ] **Dado** `?provider=banana` (valor inválido), **quando** `GET /users/admin/users`, **então**
+- [x] **Dado** `?provider=banana` (valor inválido), **quando** `GET /users/admin/users`, **então**
   200 sem filtro de provedor aplicado (não 400).
-- [ ] **Dado** `?provider=google&emailVerified=true`, **quando** a query roda, **então** as duas
+- [x] **Dado** `?provider=google&emailVerified=true`, **quando** a query roda, **então** as duas
   cláusulas são combinadas (AND) no mesmo `where`.
-- [ ] **Dado** nenhuma credencial, **quando** `GET /users/admin/users?provider=google`, **então**
+- [x] **Dado** nenhuma credencial, **quando** `GET /users/admin/users?provider=google`, **então**
   401.
-- [ ] **Dado** um token de usuário **não-admin**, **quando** `GET /users/admin/users?provider=google`,
+- [x] **Dado** um token de usuário **não-admin**, **quando** `GET /users/admin/users?provider=google`,
   **então** 403 e nenhum dado de usuário é devolvido.
-- [ ] **Dado** um `User` alvo com `password != null` e um `LinkedAccount`, **quando**
+- [x] **Dado** um `User` alvo com `password != null` e um `LinkedAccount`, **quando**
   `GET /users/admin/users/:id` como admin, **então** o detalhe traz `hasPassword: true` e
   `authProviders: ["google"]`, sem `password`.
 

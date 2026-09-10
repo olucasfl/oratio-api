@@ -733,6 +733,15 @@ describe('UsersService', () => {
       expect(prisma.user.findMany).not.toHaveBeenCalled();
     });
 
+    it('rejects a non-admin caller even with a provider filter (no data returned)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ isAdmin: false });
+
+      await expect(
+        service.getAllUsers('user-1', { provider: 'google' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    });
+
     it('builds no filters when none are given', async () => {
       await service.getAllUsers('admin-1');
 
@@ -768,6 +777,79 @@ describe('UsersService', () => {
       expect(where.AND[0].OR[0].spiritualStats.lastPrayerDate.gte).toBeInstanceOf(Date);
       expect(where.AND[0].OR[1].activities.some.createdAt.gte).toBeInstanceOf(Date);
     });
+
+    // --- método de entrada (spec admin-provedor) ---
+
+    it('maps hasPassword/authProviders for each of the three states and never returns the hash', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        { id: 'u-oratio', name: 'O', email: 'o@example.com', createdAt: new Date(), emailVerified: true, isAdmin: false, spiritualStats: null, password: 'hash', linkedAccounts: [] },
+        { id: 'u-google', name: 'G', email: 'g@example.com', createdAt: new Date(), emailVerified: true, isAdmin: false, spiritualStats: null, password: null, linkedAccounts: [{ provider: 'google' }] },
+        { id: 'u-both', name: 'B', email: 'b@example.com', createdAt: new Date(), emailVerified: true, isAdmin: false, spiritualStats: null, password: 'hash', linkedAccounts: [{ provider: 'google' }] },
+      ]);
+
+      const result = await service.getAllUsers('admin-1');
+
+      expect(result).toEqual([
+        expect.objectContaining({ id: 'u-oratio', hasPassword: true, authProviders: [] }),
+        expect.objectContaining({ id: 'u-google', hasPassword: false, authProviders: ['google'] }),
+        expect.objectContaining({ id: 'u-both', hasPassword: true, authProviders: ['google'] }),
+      ]);
+      for (const u of result) {
+        expect(u).not.toHaveProperty('password');
+        expect(u).not.toHaveProperty('linkedAccounts');
+      }
+    });
+
+    it('selects password + linkedAccounts.provider (needed to derive the booleans)', async () => {
+      await service.getAllUsers('admin-1');
+
+      const select = prisma.user.findMany.mock.calls[0][0].select;
+      expect(select.password).toBe(true);
+      expect(select.linkedAccounts).toEqual({ select: { provider: true } });
+    });
+
+    it('builds the where clause for provider=oratio (password, no LinkedAccount)', async () => {
+      await service.getAllUsers('admin-1', { provider: 'oratio' });
+
+      expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({
+        password: { not: null },
+        linkedAccounts: { none: {} },
+      });
+    });
+
+    it('builds the where clause for provider=google (no password, a google LinkedAccount)', async () => {
+      await service.getAllUsers('admin-1', { provider: 'google' });
+
+      expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({
+        password: null,
+        linkedAccounts: { some: { provider: 'google' } },
+      });
+    });
+
+    it('builds the where clause for provider=both (password AND a LinkedAccount)', async () => {
+      await service.getAllUsers('admin-1', { provider: 'both' });
+
+      expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({
+        password: { not: null },
+        linkedAccounts: { some: {} },
+      });
+    });
+
+    it('adds no provider clause for an unrecognized value', async () => {
+      await service.getAllUsers('admin-1', { provider: 'banana' as never });
+
+      expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({});
+    });
+
+    it('combines provider with emailVerified (AND in the same where)', async () => {
+      await service.getAllUsers('admin-1', { provider: 'google', emailVerified: true });
+
+      expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({
+        emailVerified: true,
+        password: null,
+        linkedAccounts: { some: { provider: 'google' } },
+      });
+    });
   });
 
   describe('getUserDetail', () => {
@@ -800,6 +882,8 @@ describe('UsersService', () => {
         spiritualStats: null,
         consecrations: [{ id: 'c1' }],
         completedConsecrationDays: [{ id: 'd1' }, { id: 'd2' }, { id: 'd3' }],
+        password: 'hash',
+        linkedAccounts: [],
       });
 
       const result = await service.getUserDetail('admin-1', 'target-1');
@@ -807,6 +891,29 @@ describe('UsersService', () => {
       expect(result.consecration).toEqual({ started: true, daysCompleted: 3 });
       expect(result.consecrations).toBeUndefined();
       expect(result.completedConsecrationDays).toBeUndefined();
+    });
+
+    it('exposes the login method (hasPassword + authProviders) without leaking the hash', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ isAdmin: true }).mockResolvedValueOnce({
+        id: 'target-1',
+        name: 'Maria',
+        email: 'maria@example.com',
+        createdAt: new Date(),
+        emailVerified: true,
+        isAdmin: false,
+        spiritualStats: null,
+        consecrations: [],
+        completedConsecrationDays: [],
+        password: 'hash',
+        linkedAccounts: [{ provider: 'google' }],
+      });
+
+      const result = await service.getUserDetail('admin-1', 'target-1');
+
+      expect(result.hasPassword).toBe(true);
+      expect(result.authProviders).toEqual(['google']);
+      expect(result).not.toHaveProperty('password');
+      expect(result).not.toHaveProperty('linkedAccounts');
     });
   });
 
