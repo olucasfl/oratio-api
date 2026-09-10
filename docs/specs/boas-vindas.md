@@ -35,19 +35,23 @@
 > - Só `transform`/`opacity`; nada de `width`/`height`/`box-shadow`/`top`/`left` (PWA em celular
 >   modesto). Sob `reduce`, a camada da página que sai nem é montada.
 >
-> **Copy final** (substitui a tabela "Conteúdo do guia" abaixo — mais informação sobre o que o
-> app oferece, sem prometer o que não existe; Quaresma de São Miguel fica de fora por ser
-> sazonal 15/08–29/09):
+> **Copy final** — **densificada em capítulos (2026-09-10, 3º prompt):** cada tela = título curto
+> + 1 linha de introdução + lista de 3–4 recursos (ícone `lucide` pequeno + nome + meia linha).
+> Só o que o app tem e com rota (conferido em `App.tsx`/`MenuDrawer.tsx`); Quaresma de São Miguel
+> fica de fora por ser sazonal. Continuam 3 telas, `Sunrise`/`Cross`/`BookOpen` como ícone grande,
+> `Começar` na última. A lista é `<ul>/<li>` inteira no DOM desde o início (cópia `.srOnly` +
+> camada visível `aria-hidden` que entra em stagger); cabe em 375×667 sem rolar.
 >
-> | Pág. | Título | Ícone | Texto | Botão |
-> |---|---|---|---|---|
-> | 1 | **Bem-vindo ao Oratio** | `Sunrise` | "Seu companheiro de oração diária. Abra o app e encontre a liturgia de hoje, o Santo do Dia e uma frase para levar no coração." | Próximo |
-> | 2 | **Reze e acompanhe** | `Cross` | "Terço, orações e a Consagração de 33 dias, com o seu progresso guardado a cada dia. E o exame de consciência para preparar a confissão." | Próximo |
-> | 3 | **Estude e converse** | `BookOpen` | "Bíblia de Estudo para marcar versículos e reuni-los em coleções, o Catecismo sempre à mão, e o Vox para conversar sobre a fé." | **Começar** |
+> | Tela | Título · introdução | Recursos (nome — meia linha) |
+> |---|---|---|
+> | 1 | **Oração diária** · "O essencial de cada dia, sempre à mão." | Liturgia do dia · Santo do dia · Terço & Rosário · Orações e Ladainhas |
+> | 2 | **Caminhos** · "Devoções mais longas, para percorrer com calma." | Consagração de 33 dias (progresso guardado) · Guia de Confissão (exame de consciência) · Uma Home que acompanha o dia ("Neste momento" / "Para você hoje") |
+> | 3 | **Estudo e conversa** · "Para aprofundar e tirar dúvidas." | Bíblia de Estudo (marcar/anotar/coleções) · Catecismo · Vox · Perfil e progresso |
 >
 > **Testes** (frontend): os 3 do `WelcomeGate` (incluindo a regressão do bug de reavaliação por
-> rota) + 8 novos do `WelcomeGuide` (fake timers). O escopo "só dois testes" do 1º prompt valia
-> para a versão estática; a versão animada tem lógica de tempo que precisa de teste real.
+> rota) + 8 do `WelcomeGuide` (fake timers) — que percorrem os 3 capítulos e conferem os itens de
+> cada um. O escopo "só dois testes" do 1º prompt valia para a versão estática; a versão animada
+> com capítulos tem lógica de tempo e conteúdo que precisa de teste real.
 
 ## Objetivo
 
