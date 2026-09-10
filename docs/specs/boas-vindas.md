@@ -1,8 +1,15 @@
 # Spec: boas-vindas — guia de primeira entrada
 
-> Status: **aprovada** (2026-09-09) — conceito e questões abertas resolvidas; falta plano/checklist
-> Plano: `docs/tasks/boas-vindas-plan.md` · Checklist: `docs/tasks/boas-vindas-todo.md` *(a criar após "aprovada")*
+> Status: **implementada, na `develop` dos dois repos** (2026-09-10) — falta o `db push` +
+> backfill de produção (execução humana, `prisma/db-scripts/2026-09-10-boas-vindas.sql`), o teste
+> manual na tela pelos dois métodos, e a promoção pra `main`.
+> Plano/Checklist: **nenhum** — mudança pequena, foi direto ao código (decisão do humano, 2026-09-10).
 > Frontend pareado: `oratio/docs/specs/boas-vindas.md` (ponteiro) — **o grosso desta feature é frontend**
+
+> **Desvio de conteúdo (2026-09-10, decisão do humano no prompt de implementação):** os títulos e
+> textos das 3 páginas foram substituídos pelos da seção "Conteúdo do guia" abaixo (versão
+> final, mais curta). Os ícones passaram a `Sunrise` / `Cross` / `BookOpen`. A estrutura (3
+> páginas, sem pular, progresso, `Começar` na última) e todo o resto da spec valem como escrito.
 
 ## Objetivo
 
@@ -207,41 +214,51 @@ O `.sql` para revisão humana precisa ter, **em passos numerados e separados**:
 
 ## Critérios de aceite (testáveis, em BDD)
 
+> **Escopo de teste automatizado reduzido a pedido do humano (prompt de implementação
+> 2026-09-10): apenas DOIS testes**, os dois no `WelcomeGate` do frontend — (1) redireciona
+> com `showWelcome: true`; (2) não redireciona depois (`showWelcome: false`). Os demais
+> critérios abaixo estão implementados no código e cobertos por contrato / teste manual, **não**
+> por teste automatizado dedicado. A suíte inteira dos dois repos segue verde.
+
 ### Backend
 
-- [ ] **Dado** um `User` com `welcomeSeenAt: null`, **quando** `GET /users/me`, **então** o corpo
-  traz `showWelcome: true`.
-- [ ] **Dado** um `User` com `welcomeSeenAt` preenchido, **quando** `GET /users/me`, **então**
-  `showWelcome: false`; e o corpo **não** tem `password` (o teste asserta
-  `not.toHaveProperty('password')`).
-- [ ] **Dado** nenhuma credencial, **quando** `GET /users/me`, **então** 401 (comportamento
-  atual preservado).
-- [ ] **Dado** nenhuma credencial, **quando** `POST /users/me/welcome-seen`, **então** 401.
-- [ ] **Dado** um `User` autenticado com `welcomeSeenAt: null`, **quando**
-  `POST /users/me/welcome-seen`, **então** 200 `{ ok: true }` e `user.update` é chamado com
-  `data: { welcomeSeenAt: <Date> }` (o teste asserta o `data`).
-- [ ] **Dado** um `User` autenticado que **já** tem `welcomeSeenAt`, **quando**
-  `POST /users/me/welcome-seen` de novo, **então** 200 e o timestamp **não muda** (o teste
-  asserta que o `update` não roda, ou roda com a guarda `welcomeSeenAt: null` no `where`).
-- [ ] **Dado** um token de **outro** usuário, **quando** `POST /users/me/welcome-seen`, **então**
-  só o `welcomeSeenAt` **desse** usuário (o do token) é afetado — nunca um `userId` de corpo/query.
+- [x] **Dado** um `User` com `welcomeSeenAt: null`, **quando** `GET /users/me`, **então** o corpo
+  traz `showWelcome: true` — *implementado (`user.welcomeSeenAt == null`); contrato.*
+- [x] **Dado** um `User` com `welcomeSeenAt` preenchido, **quando** `GET /users/me`, **então**
+  `showWelcome: false`; e o corpo **não** tem `password` (lista branca atual garante) —
+  *implementado; os testes de `getProfile` já provam `not.toHaveProperty('password')`.*
+- [x] **Dado** nenhuma credencial, **quando** `GET /users/me`, **então** 401 — *inalterado
+  (`JwtAuthGuard`), coberto pelo teste existente.*
+- [x] **Dado** nenhuma credencial, **quando** `POST /users/me/welcome-seen`, **então** 401 —
+  *rota sob `JwtAuthGuard` (mesma pilha do `GET /users/me`); contrato.*
+- [x] **Dado** um `User` autenticado com `welcomeSeenAt: null`, **quando**
+  `POST /users/me/welcome-seen`, **então** 200 `{ ok: true }` e `user.update` com
+  `data: { welcomeSeenAt: <Date> }` — *implementado em `markWelcomeSeen`; contrato/manual.*
+- [x] **Dado** um `User` autenticado que **já** tem `welcomeSeenAt`, **quando**
+  `POST /users/me/welcome-seen` de novo, **então** 200 e o timestamp **não muda** — *implementado
+  com a guarda `if (user && !user.welcomeSeenAt)` antes do `update`; contrato/manual.*
+- [x] **Dado** um token de **outro** usuário, **quando** `POST /users/me/welcome-seen`, **então**
+  só o `welcomeSeenAt` do usuário do token é afetado — *`userId` vem de `req.user.userId`,
+  nunca do corpo (`users.controller.ts`).*
 
-### Frontend (resumo — critérios completos no par)
+### Frontend
 
-- [ ] **Dado** `GET /users/me` responde `showWelcome: true`, **quando** o app carrega
-  autenticado, **então** a rota `/oratio/boas-vindas` é renderizada e a bottom nav **não**
-  aparece.
-- [ ] **Dado** o guia aberto, **então** há um indicador de progresso e **nenhum** controle de
-  "pular".
-- [ ] **Dado** a última página, **quando** o usuário toca "Começar", **então**
-  `POST /users/me/welcome-seen` é chamado (`./api` mockado, corpo verificado) e a navegação vai
-  para `/oratio/home`.
-- [ ] **Dado** o guia fechado na página 2 e um novo login (`showWelcome` ainda `true`),
-  **quando** o guia reabre, **então** começa na página 1.
-- [ ] **Dado** `GET /users/me` responde `showWelcome: false`, **quando** o app carrega,
-  **então** **nenhum** redirect para o guia acontece.
-- [ ] **Dado** `POST /users/me/welcome-seen` responde erro de rede, **quando** o usuário toca
-  "Começar", **então** a navegação para a Home acontece mesmo assim.
+- [x] **Dado** `GET /users/me` responde `showWelcome: true`, **quando** o app carrega
+  autenticado, **então** a rota `/oratio/boas-vindas` é renderizada — **teste automatizado**
+  (`WelcomeGate.test.tsx`). A bottom nav não aparece porque a página não a renderiza (não há
+  layout compartilhado).
+- [x] **Dado** `GET /users/me` responde `showWelcome: false`, **quando** o app carrega,
+  **então** **nenhum** redirect — **teste automatizado** (`WelcomeGate.test.tsx`).
+- [x] **Dado** o guia aberto, **então** há um indicador de progresso (pontinhos + `aria-label`
+  "Página X de 3") e **nenhum** controle de "pular" — *implementado; manual.*
+- [x] **Dado** a última página, **quando** toca "Começar", **então** `markWelcomeSeen()` é
+  chamado e a navegação vai para `/oratio/home` — *implementado; manual.*
+- [x] **Dado** o guia fechado na página 2 e um novo login (`showWelcome` ainda `true`), **então**
+  reabre na página 1 — *`WelcomeGuide` começa sempre em `index = 0`, e `welcomeSeenAt` só é
+  carimbado no "Começar"; manual.*
+- [x] **Dado** `POST /users/me/welcome-seen` erro de rede, **quando** toca "Começar", **então** a
+  navegação para a Home acontece mesmo assim — *`try/catch` em volta do `markWelcomeSeen`,
+  `navigate` fora do `try`; manual.*
 
 ## Plano de testes
 
@@ -293,13 +310,17 @@ Loop de verificação por tarefa:
   **não pega carona** e precisa de um `prisma db push` só dela, seguido do `UPDATE` do backfill
   na mesma janela. `docs/specs/INDEX.md` → "Pendências de execução humana".
 
-## Conteúdo do guia — **decidido** (3 páginas)
+## Conteúdo do guia — **decidido** (3 páginas) — versão final 2026-09-10
 
-| Pág. | Título | Ícone (lucide) | Texto |
-|---|---|---|---|
-| 1 | **A Palavra de cada dia** | `Sunrise` | "As leituras da missa, o Evangelho e o Santo do Dia — prontos assim que você abre o app." |
-| 2 | **Sua vida de oração** | `Cross` | "Reze o Terço, faça a Consagração de 33 dias, guarde versículos na Bíblia de Estudo — e acompanhe seu caminho." |
-| 3 | **Vox, para as suas dúvidas** | `Sparkles` | "Pergunte sobre a fé a qualquer hora — sempre fiel ao que a Igreja ensina." Botão: **Começar**. |
+| Pág. | Título | Ícone (lucide) | Texto | Botão |
+|---|---|---|---|---|
+| 1 | **Bem-vindo ao Oratio** | `Sunrise` | "Seu espaço de oração diária. Orações, terço, consagração e o Santo do Dia, sempre à mão." | Próximo |
+| 2 | **Reze e acompanhe** | `Cross` | "Marque suas orações, acompanhe a consagração e veja seu progresso ao longo dos dias." | Próximo |
+| 3 | **Estude e converse** | `BookOpen` | "Bíblia de Estudo para marcar e organizar versículos, e o Vox para tirar dúvidas sobre a fé." | **Começar** |
+
+> Versão anterior (substituída no prompt de implementação, mantida só como histórico): pág. 1
+> "A Palavra de cada dia" (`Sunrise`); pág. 2 "Sua vida de oração" (`Cross`); pág. 3 "Vox, para
+> as suas dúvidas" (`Sparkles`).
 
 - Catecismo, Quaresma de São Miguel, Confissão e Orações avulsas ficam **de fora da tela** — 5
   segundos por página não comportam a lista inteira, e o trio acima é o que vende o app.

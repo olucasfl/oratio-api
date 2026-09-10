@@ -58,6 +58,25 @@ export class UsersController {
     return this.userService.getProfile(userId);
   }
 
+  /*
+  Guia de boas-vindas concluído. Mesma pilha do GET /users/me (só
+  JwtAuthGuard) — chamada única por conta, sem throttle dedicado e sem X-App,
+  igual ao `POST oratio/voxai/profile/intro-seen`. `userId` vem do token,
+  nunca do corpo (RULES §5). Sem corpo. Resposta: { ok: true }.
+  */
+  @Post('me/welcome-seen')
+  @UseGuards(JwtAuthGuard)
+  markWelcomeSeen(@Req() req: any) {
+
+    const userId = req?.user?.userId;
+
+    if (!userId) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.userService.markWelcomeSeen(userId);
+  }
+
   @Get('admin/users')
   @UseGuards(JwtAuthGuard, AdminGuard)
   getAllUsers(
