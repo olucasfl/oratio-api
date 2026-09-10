@@ -1,6 +1,6 @@
 # Spec: login-google — "Entrar com Google"
 
-> Status: em andamento (Fases A–D entregues; **Fase E na `develop` dos dois repos desde 2026-09-09 — código pronto, mas COM um bug de CSS conhecido em aberto (ver "Fase E → Bugs conhecidos"): NÃO está pronta pra `main`**)
+> Status: em andamento (Fases A–D entregues; **Fase E na `develop` dos dois repos desde 2026-09-09, verificada no navegador no Checkpoint E 2026-09-10 (7 cenários OK) e com o BUG-E1 corrigido — sem bloqueio de código pra `main`; falta só pendência humana: env vars de prod + publicar o app OAuth**)
 > Plano: `docs/tasks/login-google-plan.md` · Checklist: `docs/tasks/login-google-todo.md`
 > Frontend pareado: `oratio/docs/specs/login-google.md` (ponteiro — precisa herdar a Fase E depois do "ok")
 
@@ -681,27 +681,27 @@ Confirmado em `users.service.ts:463` (`if (!link || link.userId !== userId)`).
 - [x] **Dado** essa conta, **quando** o backend responde 400 (conta Google não é deste user), **então** a conta **não** é apagada, `clearSession` **não** roda, a pessoa continua no app. *(backend: `users.service.spec.ts`; frontend: `DeleteAccountModal.test.tsx`)*
 - [x] **Dado** uma conta com senha (`hasPassword: true`), **quando** abre o modal → campo de senha; senha certa → 200 + `clearSession`; senha errada → mensagem, sem `clearSession` (comportamento atual preservado).
 
-### Bugs conhecidos — Fase E (em aberto — bloqueiam a `main`)
+### Bugs conhecidos — Fase E
 
-**BUG-E1 — o balão do aviso "Defina uma senha" (E1b) é recortado no desktop.**
+**BUG-E1 — o balão do aviso "Defina uma senha" (E1b) era recortado no desktop. ✅ RESOLVIDO
+(2026-09-10).**
 
-- **Sintoma:** a última linha do balão (*"…para também entrar sem o Google"*) some no
-  desktop. No mobile o card do perfil é mais alto e cabe, por isso passou no teste inicial.
-  Reaparece / piora com `FONT_SCALE_OPTIONS` no maior tamanho.
-- **Causa:** `.pwdHint` é `position:absolute` (`oratio/src/pages/Profile/Profile.module.css`,
-  `top:64px`) dentro de `.profileHero`, que tem **`overflow:hidden`** (`Profile.module.css`,
-  ~L202). O balão ultrapassa a altura do card e é recortado. O `overflow:hidden` **não pode
-  ser removido** — segura o gradiente dentro das bordas arredondadas do card.
-- **Correção proposta (não implementada):** tirar **só o balão** de dentro de `.profileHero`
-  usando o `<Portal/>` que o projeto já tem (`oratio/src/components/Portal/Portal.tsx` — o
-  padrão da casa para escapar de contexto de empilhamento / containing-block; renderiza em
-  `#overlay-root`). O balão passa a `position:fixed`, posicionado a partir do
-  `getBoundingClientRect()` da engrenagem (via `ref`), recalculado no `resize`. A pulsação
-  **fica na engrenagem** (`.settingsGearPulse` — não é recortada, está no botão). Só o balão
-  migra.
-- **Testar ao corrigir:** desktop largo **e** mobile **e** com `FONT_SCALE_OPTIONS` no maior
-  tamanho (é onde reaparece). Conferir `z-index` e que o balão **não cobre** a engrenagem.
-- **Regra registrada** (`oratio/docs/ARCHITECTURE.md`): `.profileHero` tem `overflow:hidden` —
+- **Sintoma (histórico):** a última linha do balão (*"…para também entrar sem o Google"*) sumia
+  no desktop. No mobile o card do perfil é mais alto e cabia, por isso passou no teste inicial.
+  Piorava com `FONT_SCALE_OPTIONS` no maior tamanho.
+- **Causa:** `.pwdHint` era `position:absolute` (`oratio/src/pages/Profile/Profile.module.css`,
+  `top:64px`) dentro de `.profileHero`, que tem **`overflow:hidden`**. O balão ultrapassava a
+  altura do card e era recortado. O `overflow:hidden` não podia ser removido — segura o
+  gradiente dentro das bordas arredondadas do card.
+- **Correção aplicada** (`oratio` branch `fix/login-google-bug-e1`, commit `23b0d78`, na
+  `develop` pelo merge `4401808`): o balão **e** o backdrop foram para um `<Portal/>`
+  (`#overlay-root`), `position:fixed`, posicionado por JS a partir do `getBoundingClientRect()`
+  da engrenagem (`gearRef`), recalculado no `resize`/`scroll` via rAF.
+  `max-width: min(250px, calc(100vw - 24px))`. A pulsação fica na engrenagem
+  (`.settingsGearPulse`, no botão). 836 testes de frontend verdes.
+- **Verificado no Checkpoint E (2026-09-10):** desktop largo, mobile e `FONT_SCALE` máximo — as
+  3 configurações OK, balão inteiro e sem cobrir a engrenagem.
+- **Regra registrada** (`oratio/docs/ARCHITECTURE.md` §6): `.profileHero` tem `overflow:hidden` —
   nada `position:absolute` dentro dele pode ultrapassar as bordas do card; overlays vão pelo
   `<Portal/>`.
 
