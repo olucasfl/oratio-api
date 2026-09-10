@@ -11,6 +11,44 @@
 > final, mais curta). Os ícones passaram a `Sunrise` / `Cross` / `BookOpen`. A estrutura (3
 > páginas, sem pular, progresso, `Começar` na última) e todo o resto da spec valem como escrito.
 
+> **Desvio de conteúdo/comportamento (2026-09-10, 2º prompt — "guia com vida"):** o guia era
+> estático demais para o que é (a primeira impressão do app). Foi reescrito com movimento e a
+> copy expandida. **Continua dentro do contrato:** 3 telas, navegação só pra frente
+> ("Próximo" → "Começar"), sem botão de pular/fechar/sair, indicador de progresso sempre
+> visível, `markWelcomeSeen()` só no "Começar" (best-effort — navega pra `/oratio/home` mesmo se
+> falhar), sem asset novo (ícones `lucide-react` no vermelho da marca, tipografia serifada), sem
+> dependência nova. A11y **não regride**: `role="dialog"` + `aria-modal` + `aria-labelledby`,
+> foco no botão de avanço a cada página, `prefers-reduced-motion: reduce` como caminho de
+> primeira classe (texto completo e instantâneo, zero animação/transição), e a camada que se
+> digita é `aria-hidden` com o texto completo numa cópia visualmente escondida (sem `aria-live`).
+>
+> **O que mudou de comportamento** (detalhe no frontend: `oratio/docs/ARCHITECTURE.md` §3 e o
+> ponteiro `oratio/docs/specs/boas-vindas.md`):
+> - **Texto que se digita** — título e corpo revelam aos poucos, em tempos diferentes (padrão do
+>   typewriter das sugestões do Vox; hook local `src/pages/WelcomeGuide/useTypewriter.ts`, sem
+>   abstração compartilhada com o Vox).
+> - **Transição real entre páginas** — a que sai desliza pra esquerda, a que entra vem da direita.
+> - **Ícone com movimento próprio** — lento e sutil, um por página. Entrada em stagger
+>   (ícone → título → corpo).
+> - **Interação além do botão** — tocar na tela completa a animação em curso; arrastar pra
+>   esquerda avança. O botão continua o caminho principal e o alvo do foco.
+> - Só `transform`/`opacity`; nada de `width`/`height`/`box-shadow`/`top`/`left` (PWA em celular
+>   modesto). Sob `reduce`, a camada da página que sai nem é montada.
+>
+> **Copy final** (substitui a tabela "Conteúdo do guia" abaixo — mais informação sobre o que o
+> app oferece, sem prometer o que não existe; Quaresma de São Miguel fica de fora por ser
+> sazonal 15/08–29/09):
+>
+> | Pág. | Título | Ícone | Texto | Botão |
+> |---|---|---|---|---|
+> | 1 | **Bem-vindo ao Oratio** | `Sunrise` | "Seu companheiro de oração diária. Abra o app e encontre a liturgia de hoje, o Santo do Dia e uma frase para levar no coração." | Próximo |
+> | 2 | **Reze e acompanhe** | `Cross` | "Terço, orações e a Consagração de 33 dias, com o seu progresso guardado a cada dia. E o exame de consciência para preparar a confissão." | Próximo |
+> | 3 | **Estude e converse** | `BookOpen` | "Bíblia de Estudo para marcar versículos e reuni-los em coleções, o Catecismo sempre à mão, e o Vox para conversar sobre a fé." | **Começar** |
+>
+> **Testes** (frontend): os 3 do `WelcomeGate` (incluindo a regressão do bug de reavaliação por
+> rota) + 8 novos do `WelcomeGuide` (fake timers). O escopo "só dois testes" do 1º prompt valia
+> para a versão estática; a versão animada tem lógica de tempo que precisa de teste real.
+
 ## Objetivo
 
 Mostrar, **uma única vez** e **na primeira entrada** de qualquer conta (cadastro por senha ou
@@ -219,6 +257,11 @@ O `.sql` para revisão humana precisa ter, **em passos numerados e separados**:
 > com `showWelcome: true`; (2) não redireciona depois (`showWelcome: false`). Os demais
 > critérios abaixo estão implementados no código e cobertos por contrato / teste manual, **não**
 > por teste automatizado dedicado. A suíte inteira dos dois repos segue verde.
+>
+> **Atualização (2026-09-10, prompt "guia com vida"):** com a versão animada, o `WelcomeGuide`
+> passou a ter lógica de tempo (typewriter, transição) que precisa de teste real — hoje são
+> **8 testes** dedicados a ele (fake timers), mais um 3º no `WelcomeGate` cobrindo a regressão do
+> bug de reavaliação por rota. Ver o bloco "Desvio de conteúdo/comportamento" no topo.
 
 ### Backend
 
@@ -310,7 +353,13 @@ Loop de verificação por tarefa:
   **não pega carona** e precisa de um `prisma db push` só dela, seguido do `UPDATE` do backfill
   na mesma janela. `docs/specs/INDEX.md` → "Pendências de execução humana".
 
-## Conteúdo do guia — **decidido** (3 páginas) — versão final 2026-09-10
+## Conteúdo do guia — 3 páginas
+
+> **A copy corrente é a do bloco "Desvio de conteúdo/comportamento (2026-09-10, 2º prompt)" no
+> topo desta spec** (versão expandida, entregue com o guia animado). As tabelas abaixo são
+> histórico.
+
+Versão final 2026-09-10 (1º prompt — substituída pela expandida do 2º prompt):
 
 | Pág. | Título | Ícone (lucide) | Texto | Botão |
 |---|---|---|---|---|
@@ -318,7 +367,7 @@ Loop de verificação por tarefa:
 | 2 | **Reze e acompanhe** | `Cross` | "Marque suas orações, acompanhe a consagração e veja seu progresso ao longo dos dias." | Próximo |
 | 3 | **Estude e converse** | `BookOpen` | "Bíblia de Estudo para marcar e organizar versículos, e o Vox para tirar dúvidas sobre a fé." | **Começar** |
 
-> Versão anterior (substituída no prompt de implementação, mantida só como histórico): pág. 1
+> Versão anterior (substituída no 1º prompt de implementação, mantida só como histórico): pág. 1
 > "A Palavra de cada dia" (`Sunrise`); pág. 2 "Sua vida de oração" (`Cross`); pág. 3 "Vox, para
 > as suas dúvidas" (`Sparkles`).
 
