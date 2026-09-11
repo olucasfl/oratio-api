@@ -120,5 +120,7 @@ posterior, sujeita ao passo 2 acima.
 
 ## Questões em aberto
 
-- [ ] A redação exata do bloco — aguardando o preflight `doutrina-guardrail` e aceite explícito
-  de Lucas antes de qualquer commit (não é uma questão de design, é uma etapa pendente).
+- [x] A redação exata do bloco — preflight `doutrina-guardrail` feito e texto **aceito por Lucas**, que
+  inseriu o bloco ele mesmo em `vox.prompt.ts` (2026-09-11). Os 6 critérios de comportamento
+  acima seguem **em aberto**: são verificáveis só com uma chamada real ao modelo, que ainda não
+  foi feita (custa dinheiro — `RULES.md` §3). Verificar no app depois que estiver na `develop`.
