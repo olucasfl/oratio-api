@@ -1,7 +1,7 @@
 # Spec: consentimento-privacidade — mecanismo de consentimento LGPD
 
-> Status: rascunho
-> Plano: — *(a decidir na aprovação — é maior que "mudança pequena": 4 fluxos de UI + 2 campos
+> Status: aprovada
+> Plano: — *(ainda não escrito — é maior que "mudança pequena": 4 fluxos de UI + 2 campos
 > de schema + 1 rota nova + 1 DTO alterado, nos dois repos)* · Checklist: —
 > Frontend pareado: `oratio/docs/specs/consentimento-privacidade.md`
 

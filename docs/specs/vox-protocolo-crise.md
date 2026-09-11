@@ -1,7 +1,7 @@
 # Spec: vox-protocolo-crise — instrução de crise no prompt do Vox
 
-> Status: rascunho
-> Plano: — *(a decidir na aprovação)* · Checklist: —
+> Status: aprovada
+> Plano: — *(ainda não escrito)* · Checklist: —
 > Frontend pareado: n/a — só o prompt do Vox (`oratio-api`) muda; nenhuma tela nova.
 > **Bloqueia:** a publicação dos Termos de Uso (`docs/specs/consentimento-privacidade.md`) —
 > o texto já aprovado (`oratio/docs/legal/2026-09-11-termos-de-uso.md` §4) promete este
