@@ -52,6 +52,7 @@ describe('UsersController (delegation)', () => {
     userService = {
       create: jest.fn(),
       getProfile: jest.fn(),
+      acceptLegalTerms: jest.fn(),
       getAllUsers: jest.fn(),
       getUserDetail: jest.fn(),
       deleteUserAdmin: jest.fn(),
@@ -259,6 +260,18 @@ describe('UsersController (delegation)', () => {
     controller.getUserActivity(authed('admin-1'), 'target-1');
 
     expect(userService.getUserActivity).toHaveBeenCalledWith('admin-1', 'target-1');
+  });
+
+  it('acceptLegalTerms() rejects without a userId', () => {
+    expect(() => controller.acceptLegalTerms(unauthed)).toThrow(UnauthorizedException);
+    expect(userService.acceptLegalTerms).not.toHaveBeenCalled();
+  });
+
+  it('acceptLegalTerms() delegates with the authenticated userId', () => {
+    userService.acceptLegalTerms.mockReturnValue({ ok: true });
+
+    expect(controller.acceptLegalTerms(authed('user-1'))).toEqual({ ok: true });
+    expect(userService.acceptLegalTerms).toHaveBeenCalledWith('user-1');
   });
 
   it('updateProfile() rejects without a userId', () => {

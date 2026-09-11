@@ -12,6 +12,7 @@ import { UsersService } from './users.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { AuthService } from '../auth/auth.service';
+import { LEGAL_TERMS_VERSION } from './legal-terms-version';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -163,6 +164,27 @@ describe('UsersService', () => {
       );
     });
 
+    it('stamps legalTermsAcceptedAt/legalTermsVersion in the same prisma.user.create call', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 'user-1',
+        name: 'Maria',
+        email: 'user@example.com',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        emailVerified: false,
+        isAdmin: false,
+      });
+      mailService.sendOratioVerificationEmail.mockResolvedValue(true);
+
+      await service.create({ ...validInput, legalTermsAccepted: true } as any, 'oratio');
+
+      expect(prisma.user.create).toHaveBeenCalledTimes(1);
+      const createArgs = prisma.user.create.mock.calls[0][0];
+      expect(createArgs.data.legalTermsAcceptedAt).toBeInstanceOf(Date);
+      expect(createArgs.data.legalTermsVersion).toBe(LEGAL_TERMS_VERSION);
+    });
+
     it('still creates the account when the verification email fails to send, but reports emailSent: false', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({
@@ -258,6 +280,98 @@ describe('UsersService', () => {
       expect(result).not.toHaveProperty('password');
       // sem LinkedAccount google
       expect(result.hasGoogle).toBe(false);
+    });
+
+    it('legalTermsAccepted: false when the user never accepted (legalTermsAcceptedAt null)', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        name: 'Maria',
+        email: 'user@example.com',
+        pendingEmail: null,
+        createdAt: new Date(),
+        emailVerified: true,
+        isAdmin: false,
+        password: null,
+        welcomeSeenAt: null,
+        legalTermsAcceptedAt: null,
+        legalTermsVersion: null,
+        spiritualStats: null,
+        consecrations: [],
+        completedConsecrationDays: [],
+        linkedAccounts: [],
+      });
+
+      const result = await service.getProfile('user-1');
+      expect(result.legalTermsAccepted).toBe(false);
+    });
+
+    it('legalTermsAccepted: false when the accepted version is stale', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        name: 'Maria',
+        email: 'user@example.com',
+        pendingEmail: null,
+        createdAt: new Date(),
+        emailVerified: true,
+        isAdmin: false,
+        password: null,
+        welcomeSeenAt: null,
+        legalTermsAcceptedAt: new Date('2020-01-01'),
+        legalTermsVersion: '2020-01-01',
+        spiritualStats: null,
+        consecrations: [],
+        completedConsecrationDays: [],
+        linkedAccounts: [],
+      });
+
+      const result = await service.getProfile('user-1');
+      expect(result.legalTermsAccepted).toBe(false);
+    });
+
+    it('legalTermsAccepted: true when accepted at the current version', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        name: 'Maria',
+        email: 'user@example.com',
+        pendingEmail: null,
+        createdAt: new Date(),
+        emailVerified: true,
+        isAdmin: false,
+        password: null,
+        welcomeSeenAt: null,
+        legalTermsAcceptedAt: new Date(),
+        legalTermsVersion: LEGAL_TERMS_VERSION,
+        spiritualStats: null,
+        consecrations: [],
+        completedConsecrationDays: [],
+        linkedAccounts: [],
+      });
+
+      const result = await service.getProfile('user-1');
+      expect(result.legalTermsAccepted).toBe(true);
+    });
+  });
+
+  describe('acceptLegalTerms', () => {
+    it('always rewrites legalTermsAcceptedAt/legalTermsVersion, even on a second call', async () => {
+      prisma.user.update.mockResolvedValue({});
+
+      const result1 = await service.acceptLegalTerms('user-1');
+      expect(result1).toEqual({ ok: true });
+      expect(prisma.user.update).toHaveBeenNthCalledWith(1, {
+        where: { id: 'user-1' },
+        data: {
+          legalTermsAcceptedAt: expect.any(Date),
+          legalTermsVersion: LEGAL_TERMS_VERSION,
+        },
+      });
+
+      // reaceite: chamar de novo (ex.: depois de um bump de versão) precisa
+      // CONSEGUIR regravar — diferente de markWelcomeSeen, que é idempotente
+      // e não regrava numa segunda chamada.
+      const result2 = await service.acceptLegalTerms('user-1');
+      expect(result2).toEqual({ ok: true });
+      expect(prisma.user.update).toHaveBeenCalledTimes(2);
     });
   });
 
