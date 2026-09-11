@@ -832,6 +832,11 @@ describe('AuthService', () => {
         emailVerified: true,
         password: null,
       });
+      // Regressão (spec consentimento-privacidade.md): auth.service.ts NUNCA
+      // grava consentimento, nem no cadastro novo via Google — a tela só
+      // aparece depois, pelo frontend (POST /users/me/legal-terms-accepted).
+      expect(userData.legalTermsAcceptedAt).toBeUndefined();
+      expect(userData.legalTermsVersion).toBeUndefined();
 
       const linkData = prisma.linkedAccount.create.mock.calls[0][0].data;
       expect(linkData).toMatchObject({

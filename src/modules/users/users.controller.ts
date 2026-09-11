@@ -78,6 +78,26 @@ export class UsersController {
     return this.userService.markWelcomeSeen(userId);
   }
 
+  /*
+  Aceite do PAR Termos de Uso + Política de Privacidade (spec
+  consentimento-privacidade.md). Mesma pilha do welcome-seen acima — só
+  JwtAuthGuard, sem X-App, sem throttle. Sem corpo, `userId` do token, nunca
+  do corpo (RULES §5). Resposta: { ok: true }. NÃO idempotente do mesmo
+  jeito que markWelcomeSeen — sempre regrava (ver o service).
+  */
+  @Post('me/legal-terms-accepted')
+  @UseGuards(JwtAuthGuard)
+  acceptLegalTerms(@Req() req: any) {
+
+    const userId = req?.user?.userId;
+
+    if (!userId) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.userService.acceptLegalTerms(userId);
+  }
+
   @Get('admin/users')
   @UseGuards(JwtAuthGuard, AdminGuard)
   getAllUsers(

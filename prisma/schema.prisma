@@ -61,6 +61,17 @@ model User {
   // guia só aparecer para quem se cadastrar DEPOIS do deploy
   // (prisma/db-scripts/2026-09-10-boas-vindas.sql).
   welcomeSeenAt DateTime?
+
+  // Aceite do PAR Termos de Uso + Política de Privacidade (spec
+  // consentimento-privacidade.md). `legalTermsVersion` compara com
+  // LEGAL_TERMS_VERSION (src/modules/users/legal-terms-version.ts) —
+  // `GET /users/me` só devolve legalTermsAccepted: true quando os dois
+  // baterem. SEM BACKFILL nesta coluna (é o OPOSTO do welcomeSeenAt): toda
+  // conta que já existe deve ver a tela pelo menos uma vez, porque nenhuma
+  // delas jamais deu este consentimento formalmente
+  // (prisma/db-scripts/2026-09-11-consentimento-privacidade.sql).
+  legalTermsAcceptedAt DateTime?
+  legalTermsVersion    String?
 }
 
 model PushSubscription {

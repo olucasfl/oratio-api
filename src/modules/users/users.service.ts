@@ -14,6 +14,7 @@ import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { AppType } from 'src/enums/app-type.enum';
 import { AuthService } from '../auth/auth.service';
+import { LEGAL_TERMS_VERSION } from './legal-terms-version';
 
 @Injectable()
 export class UsersService {
@@ -63,6 +64,13 @@ export class UsersService {
         emailVerified: false,
         emailVerificationToken: token,
         emailVerificationTokenExpires: expires,
+        // Grava na MESMA escrita — não uma chamada separada depois. A conta
+        // nasce sem sessão (cadastro por senha exige verificar o email antes
+        // do primeiro login), então não haveria token para chamar uma rota
+        // autenticada logo em seguida. `legalTermsAccepted` já foi validado
+        // como `true` pelo DTO (`@Equals(true)`) antes de chegar aqui.
+        legalTermsAcceptedAt: new Date(),
+        legalTermsVersion: LEGAL_TERMS_VERSION,
       },
     });
 
@@ -112,6 +120,8 @@ export class UsersService {
         isAdmin: true,
         password: true,
         welcomeSeenAt: true,
+        legalTermsAcceptedAt: true,
+        legalTermsVersion: true,
         spiritualStats: true,
         consecrations: true,
         completedConsecrationDays: { select: { id: true } },
@@ -151,6 +161,14 @@ export class UsersService {
     // desenho de `showVoxIntro` — o shell do frontend redireciona pra
     // /oratio/boas-vindas enquanto isto for true (spec boas-vindas).
     showWelcome: user.welcomeSeenAt == null,
+
+    // Aceite do par Termos de Uso + Política de Privacidade (spec
+    // consentimento-privacidade.md). `true` só quando a pessoa aceitou E a
+    // versão aceita bate com a atual — quem aceitou uma versão antiga do
+    // par (o texto mudou) fica `false` de novo, igual a quem nunca aceitou.
+    legalTermsAccepted:
+      user.legalTermsAcceptedAt != null &&
+      user.legalTermsVersion === LEGAL_TERMS_VERSION,
 
     spiritualProgress: {
 
@@ -196,6 +214,30 @@ export class UsersService {
         data: { welcomeSeenAt: new Date() },
       });
     }
+
+    return { ok: true };
+  }
+
+  /*
+  =============================
+  CONSENTIMENTO — Termos de Uso + Política de Privacidade
+  =============================
+  Diferente de `markWelcomeSeen`, este endpoint NÃO é idempotente do mesmo
+  jeito (que só carimba se ainda `null`, porque "visto o guia" não tem
+  versão). Aqui SEMPRE regrava `legalTermsAcceptedAt`/`legalTermsVersion` —
+  chamar de novo com a mesma versão atual é um no-op observável (o
+  resultado final é o mesmo), mas chamar depois de um bump de versão
+  precisa CONSEGUIR regravar, para registrar o reaceite.
+  */
+  async acceptLegalTerms(userId: string) {
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        legalTermsAcceptedAt: new Date(),
+        legalTermsVersion: LEGAL_TERMS_VERSION,
+      },
+    });
 
     return { ok: true };
   }
