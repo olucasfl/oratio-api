@@ -13,6 +13,8 @@ no mesmo commit — e `/docs-sync` confere se ela bate com a realidade.
 | Boas-vindas (guia de primeira entrada) | `specs/boas-vindas.md` | — *(sem plano: mudança pequena, foi direto)* | — | `oratio/docs/specs/boas-vindas.md` (ponteiro) | 🚧 **na `develop` dos dois repos** (2026-09-10) — **`main` não tem nada**. Guia de 3 páginas na 1ª entrada (senha e Google), 1x só. **Backend:** `User.welcomeSeenAt DateTime?` (paralelo a `voxOnboardingSeenAt`); `showWelcome` aditivo no `GET /users/me`; `POST /users/me/welcome-seen` (`JwtAuthGuard`, sem throttle/X-App) → `markWelcomeSeen`, idempotente (só carimba se ainda null). **Frontend:** rota `/oratio/boas-vindas` tela cheia (fora de bottom nav), `WelcomeGuide` (3 páginas, progresso, sem pular) — **animado desde 2026-09-10** (2º prompt): texto que se digita, transição entre páginas, ícone em movimento, tocar completa / arrastar avança, `prefers-reduced-motion` = tudo instantâneo. **Cada tela é um capítulo (3º prompt):** título + intro + lista de 3–4 recursos com rota (Oração diária / Caminhos / Estudo e conversa); lista `<ul>/<li>` inteira no DOM + cópia `.srOnly`; cabe em 375×667 sem rolar. Copy = desvios nesta spec. `WelcomeGate` no shell redireciona por `showWelcome` e **reavalia a cada troca de rota** (fix 2026-09-10: cadastro por senha só via o guia no boot seguinte). `welcomeService.markWelcomeSeen`, Login/Register vão direto ao guia no `isNewUser` (só evita flash). 11 testes (3 `WelcomeGate` + 8 `WelcomeGuide`, fake timers). **`db push` próprio + backfill PENDENTES DE EXECUÇÃO HUMANA** — script `prisma/db-scripts/2026-09-10-boas-vindas.sql` (Passo 0 contagem · Passo 1 `ADD COLUMN` · Passo 2 `UPDATE` backfill + conferência). Sem o backfill, a base inteira vê o guia. |
 | Admin: método de entrada | `specs/admin-provedor.md` | — *(sem plano: mudança pequena, foi direto)* | — | `oratio/docs/specs/admin-provedor.md` (ponteiro) | 🚧 **na `develop` dos dois repos** (2026-09-10) — **`main` não tem nada**. Ver/filtrar Oratio × Google × ambos no painel admin, **só leitura**. **Backend:** `getAllUsers`/`getUserDetail` selecionam `password` + `linkedAccounts.provider`, mapeiam pra `hasPassword` + `authProviders: string[]` e **descartam o hash** (como `getProfile`); `GET /users/admin/users` ganha o query param `provider` (`oratio` \| `google` \| `both`; valor inválido → ignorado, nunca 400) → cláusula `where` de `password`/`linkedAccounts` (3 estados). **Frontend:** `AdminFilters.provider` + campos novos em `AdminUser` no `adminService`; grupo de chips "Entrada" no `AdminFilterSheet`, `filterProvider` no `AdminPanel` (contagem/summary/limpar); ícones `Mail`/Google + `AlertTriangle` pra anomalia no `renderCard`/`renderCompactRow` e no modal de detalhe. **Sem schema, sem `db push`, sem rota nova.** `ARCHITECTURE.md` §7 atualizado. Falta teste manual no painel + promoção pra `main`. |
 | Prova de identidade (reautenticação p/ operações sensíveis) | `specs/prova-identidade.md` | — *(sem plano: mudança pequena, foi direto)* | — | `oratio/docs/specs/prova-identidade.md` (ponteiro) | 🚧 **na `develop` dos dois repos** (2026-09-10) — **`main` não tem nada**. Uma causa (o backend decidia a prova por `user.password == null`, não pelo que a conta tem) → dois sintomas: (1) não dava pra excluir a conta com o Google se você tinha senha; (2) quem esqueceu a senha precisava deslogar pra trocá-la. **Sintoma 1 (backend, commit separado — exclusão é irreversível):** `deleteAccount` chama `assertFreshProof` (senha **ou** Google fresco casando um `LinkedAccount` deste user; `private`, pronto pra reuso) + `hasGoogle` aditivo no `GET /users/me`; +2 testes (Google de outra conta → 400 e não apaga; conta com os dois métodos → aceita qualquer prova). Frontend: `DeleteAccountModal` em 3 modos (só senha / só Google / os dois com link "Não lembro minha senha" → botão Google), `profileService`/tipo do perfil com `hasGoogle`. **Sintoma 2 (só frontend):** link "Não lembro minha senha atual" no `ChangePasswordModal` → `forgotPassword(profile.email)` → `ResetPasswordModal` (rota pública reusada, **sem rota nova**), com aviso de que o e-mail chega e é preciso sair do app pra concluir. Sem schema, sem `db push`. `ARCHITECTURE.md` §5/§7 atualizado. Falta: teste manual humano dos 3 modos + do link (na tela); promoção pra `main`. |
+| Consentimento de privacidade (LGPD) | `specs/consentimento-privacidade.md` | — *(a decidir na aprovação)* | — | `oratio/docs/specs/consentimento-privacidade.md` (ponteiro) | 📝 **rascunho, revisado 2026-09-11** — mecanismo de consentimento a **dois** documentos (Termos de Uso + Política de Privacidade, aceitos juntos — **texto já existe e já foi aprovado**, `oratio/docs/legal/2026-09-11-*.md`, não é mais placeholder). **Backend:** `User.legalTermsAcceptedAt`/`legalTermsVersion` (renomeado de `privacy*` — um par cobre os dois documentos, não dois pares; versão por causa do ônus da prova do art. 8º §2 e de reconsentimento quando qualquer um dos textos mudar, sem precisar de script novo), `LEGAL_TERMS_VERSION` em código (já `"2026-09-11"`, real), `CreateUserDto.legalTermsAccepted` **obrigatório** (`@Equals(true)`, 400 se faltar), `GET /users/me` ganha `legalTermsAccepted`, `POST /users/me/legal-terms-accepted` novo. `auth.service.ts` **nunca** grava consentimento (nem no registro nem no login por Google) — só o frontend, depois de mostrar a tela. **Sem `db push`, sem backfill** — ao contrário do `welcomeSeenAt`, aqui backfilar anularia a feature (ver a spec, "⚠️ SEM BACKFILL"). Correção desta revisão: o app não guarda "intenções de oração" (`Prayer`/`GeneralPrayer` são catálogo sem `userId`) — o dado sensível real é `Message.content`, `BibleMark.note`, `QuaresmaMichaelPenance.content`, registros de prática devocional e a própria existência da conta. **Bloqueada por** `specs/vox-protocolo-crise.md` (linha abaixo) antes de publicar os Termos de Uso. |
+| Protocolo de crise do Vox | `specs/vox-protocolo-crise.md` | — *(a decidir na aprovação)* | — | n/a — só prompt | 📝 **rascunho** (2026-09-11) — **bloqueante** da publicação dos Termos de Uso (linha acima): os Termos já aprovados (`oratio/docs/legal/2026-09-11-termos-de-uso.md` §4) prometem que o Vox encaminha crise/ideação suicida para CVV 188/`cvv.org.br`/SAMU 192; `vox.prompt.ts` não tem nenhuma instrução correspondente hoje (zero ocorrências de suic/crise/depress/CVV/188/profissional). Precedência sobre os 6 perfis de `VOX_PROFILES`. **Redação final do bloco de prompt exige preflight `doutrina-guardrail` e aceite explícito de Lucas antes do commit** (`RULES.md` §3) — esta spec descreve o comportamento em critérios de aceite, não a redação. |
 
 ## Legenda de status
 
@@ -67,15 +69,32 @@ feitos — removidos em 2026-09-04. `google-auth-library` foi aprovada (2026-09-
 
 Gaps reais que precisam de dono — não são specs nem pendências de deploy.
 
-- **Editar o nome no perfil não funciona ponta a ponta.** Lacuna **pré-existente**, não é do
-  login-google: o backend tem `PATCH /users/me` aceitando `{ name }`
-  (`users.controller.ts:209`, `users.service.updateProfile`), mas o frontend **nunca chama essa
-  rota** — não há UI de "editar nome" em Configurações da conta. Decidir: expor no frontend ou
-  remover a rota.
-- **Não há Política de Privacidade.** Bloqueia publicar o app OAuth no Google (a tela de
-  consentimento exige uma URL de política) **e** é exigência de LGPD por conta própria — o app
-  armazena convicção religiosa, que é dado pessoal **sensível** (`RULES.md` §6). Precisa de texto
-  jurídico + página hospedada + link no app. Anotado também no `oratio/docs/specs/INDEX.md`.
+- ~~**Editar o nome no perfil não funciona ponta a ponta.**~~ ✅ Resolvido em 2026-09-11: o
+  `PATCH /users/me` ganhou `UpdateProfileDto` (validação real) e parou de vazar
+  `emailVerificationToken`/`passwordResetToken`/`pendingEmailToken` na resposta; o frontend ganhou
+  o botão "Editar nome" em Configurações da conta (`oratio` commit da branch `feat/editar-nome`).
+- ~~**Não há Política de Privacidade.**~~ Atualizado 2026-09-11: o texto **já existe e já foi
+  aprovado** (`oratio/docs/legal/2026-09-11-politica-de-privacidade.md` e
+  `2026-09-11-termos-de-uso.md`) — não é mais placeholder. O mecanismo tem spec
+  (`specs/consentimento-privacidade.md`, 📝 rascunho revisado) e está **bloqueado** por
+  `specs/vox-protocolo-crise.md` antes de publicar (ver tabela acima), e implementação ainda não
+  começou.
+- **A Política de Privacidade já aprovada declara três coisas como fato que ainda não são
+  verdade** (achado ao escrever/revisar `consentimento-privacidade.md`, 2026-09-11 —
+  `oratio/docs/legal/2026-09-11-politica-de-privacidade.md` §8 principalmente):
+  - `RefreshSession.location` deveria ser removido — é derivável do IP, sem finalidade declarada
+    em lugar nenhum, e a política promete tratar dado técnico com propósito claro.
+  - **Não existe job de limpeza de sessões expiradas.** A política (§8) promete "registros de
+    acesso... mantidos... por um período curto" após o fim da sessão — os únicos
+    `refreshSession.deleteMany` hoje (`auth.service.ts:534` logout, `auth.service.ts:769`
+    revogação por reset de senha) são ação do usuário, não expiração por tempo.
+  - **Não existe exclusão de contas inativas por 24 meses, nem aviso por e-mail antes.** A
+    política (§8) declara os dois como fato.
+- **`oratio/docs/ARCHITECTURE.md` ainda cita `guestAllowedPrefixes`** (§3/§7/quirks) como se
+  fosse uma lista real no código — não é. Checado nesta revisão (2026-09-11):
+  `oratio-api/docs/ARCHITECTURE.md` **não** tem essa menção (busca sem resultado) — só o
+  `oratio/docs/ARCHITECTURE.md` tem. A versão anterior desta linha generalizava "os dois repos"
+  por engano. `RULES.md` dos dois repos já foi corrigido (pedido explícito).
 
 ## Por que não há spec para as features existentes
 
