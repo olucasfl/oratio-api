@@ -108,6 +108,12 @@ Não se aplica — nenhuma fronteira de dia.
 - Detalhe (modal): mesma dupla de ícones numa linha "Entrada: Oratio · Google".
 - Visual segue o padrão do painel (`lucide-react`, sem asset novo).
 
+> **Desvio implementado (2026-09-10):** `lucide-react` não tem um glifo do Google — só
+> `Chrome` chega perto. O frontend usa `Chrome` + `title="Entra com o Google"` para desfazer a
+> ambiguidade, em vez de adicionar um SVG novo (o painel é 100% lucide hoje, e "sem asset novo"
+> valeu mais que o glifo exato). Isolado num só componente (`ProviderIcons` em `AdminPanel.tsx`),
+> trocável depois sem tocar em mais nada.
+
 ## Modelo de dados
 
 **Nada muda.** `User.password String?` e `model LinkedAccount` (com `provider`, `@@index([userId])`)
@@ -145,13 +151,13 @@ já existem (spec `login-google`). Esta feature só **lê** — novos `select` e
 
 ### Frontend (resumo — critérios completos no par)
 
-- [ ] **Dado** a aba Usuários com o filtro "Só Google" ativo, **quando** a lista carrega,
+- [x] **Dado** a aba Usuários com o filtro "Só Google" ativo, **quando** a lista carrega,
   **então** `getAllUsers` é chamado com `provider: "google"` (`./api` mockado, query verificada).
-- [ ] **Dado** um usuário `hasPassword: true, authProviders: ["google"]` na lista, **então** o
+- [x] **Dado** um usuário `hasPassword: true, authProviders: ["google"]` na lista, **então** o
   card mostra **os dois** ícones (Oratio + Google).
-- [ ] **Dado** um usuário `hasPassword: false, authProviders: []` (anomalia), **então** o card
+- [x] **Dado** um usuário `hasPassword: false, authProviders: []` (anomalia), **então** o card
   mostra o `AlertTriangle` com `title` explicativo.
-- [ ] **Dado** o filtro "Ambos" e mais nenhum, **então** `activeFilterCount` é 1 e "Ambos"
+- [x] **Dado** o filtro "Ambos" e mais nenhum, **então** `activeFilterCount` é 1 e "Ambos"
   aparece no `filterSummary`; **quando** "Limpar filtros", volta para "Todos".
 
 ## Plano de testes
