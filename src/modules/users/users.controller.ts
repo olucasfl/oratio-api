@@ -15,6 +15,7 @@ import {
 
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { ChangeEmailDto } from './dto/change-email.dto';
@@ -236,7 +237,7 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   updateProfile(
     @Req() req: any,
-    @Body() body: { name: string },
+    @Body() body: UpdateProfileDto,
   ) {
 
     const userId = req?.user?.userId;

@@ -208,14 +208,29 @@ export class UsersService {
 
   async updateProfile(userId: string, name: string) {
 
+    /*
+    Lista branca explícita no próprio `select`, igual ao `create` — não um
+    spread do user menos a senha. O `User` também carrega
+    `emailVerificationToken`, `passwordResetToken` e `pendingEmailToken`;
+    espalhar tudo e só tirar `password` deixava os três vazarem no corpo da
+    resposta, e o de verificação de email permitia se auto-verificar sem
+    nunca abrir o email.
+    */
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { name },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        pendingEmail: true,
+        createdAt: true,
+        emailVerified: true,
+        isAdmin: true,
+      },
     });
 
-    const { password, ...safeUser } = user;
-
-    return safeUser;
+    return user;
   }
 
   /*

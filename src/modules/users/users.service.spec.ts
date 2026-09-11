@@ -262,12 +262,17 @@ describe('UsersService', () => {
   });
 
   describe('updateProfile', () => {
-    it('updates the name and never returns the password field', async () => {
+    it('updates the name and selects an explicit whitelist that never leaks password or tokens', async () => {
+      // O mock devolve exatamente o que o `select` pediu — a prova real de
+      // que nada vaza está no `select` passado ao Prisma, abaixo.
       prisma.user.update.mockResolvedValue({
         id: 'user-1',
         name: 'Novo Nome',
-        password: 'hashed-secret',
         email: 'user@example.com',
+        pendingEmail: null,
+        createdAt: new Date('2026-01-01'),
+        emailVerified: true,
+        isAdmin: false,
       });
 
       const result = await service.updateProfile('user-1', 'Novo Nome');
@@ -275,9 +280,20 @@ describe('UsersService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: { name: 'Novo Nome' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          pendingEmail: true,
+          createdAt: true,
+          emailVerified: true,
+          isAdmin: true,
+        },
       });
-      expect(result).toEqual({ id: 'user-1', name: 'Novo Nome', email: 'user@example.com' });
-      expect((result as any).password).toBeUndefined();
+      expect(result).not.toHaveProperty('password');
+      expect(result).not.toHaveProperty('emailVerificationToken');
+      expect(result).not.toHaveProperty('passwordResetToken');
+      expect(result).not.toHaveProperty('pendingEmailToken');
     });
   });
 
