@@ -887,6 +887,8 @@ describe('AuthService', () => {
       pendingEmail: null,
       pendingEmailToken: null,
       pendingEmailExpires: null,
+      legalTermsAcceptedAt: null,
+      legalTermsVersion: null,
     };
 
     it('A9 — auto-linking an UNVERIFIED account wipes the unproven password, pending tokens and old sessions', async () => {

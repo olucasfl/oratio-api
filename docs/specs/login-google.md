@@ -80,6 +80,9 @@ mesma `$transaction` do `LinkedAccount`:
 - limpa os tokens pendentes nascidos do cadastro não comprovado: `emailVerificationToken`/
   `emailVerificationTokenExpires`, `passwordResetToken`/`passwordResetExpires`,
   `pendingEmail`/`pendingEmailToken`/`pendingEmailExpires`;
+- limpa `legalTermsAcceptedAt`/`legalTermsVersion`: um aceite dado por quem criou o cadastro não
+  comprovado não é consentimento da dona do e-mail — o `LegalTermsGate` pede de novo no primeiro
+  acesso dela (decisão de Lucas, 2026-09-14). `User.name` continua intacto (ela pode editar);
 - apaga todas as `RefreshSession` desse usuário **antes** de emitir a sessão nova.
 
 Conta **já verificada** (`emailVerified: true`) mantém tudo como antes: a senha foi comprovada

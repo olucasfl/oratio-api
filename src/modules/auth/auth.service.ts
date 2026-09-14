@@ -360,6 +360,11 @@ export class AuthService {
               pendingEmail: null,
               pendingEmailToken: null,
               pendingEmailExpires: null,
+              // aceite dos Termos/Política dado por quem criou o cadastro não
+              // comprovado não é consentimento da dona do e-mail: o gate pede
+              // de novo no primeiro acesso dela
+              legalTermsAcceptedAt: null,
+              legalTermsVersion: null,
             },
           });
           await tx.refreshSession.deleteMany({ where: { userId: user.id } });
