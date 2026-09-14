@@ -315,34 +315,64 @@ export class AuthService {
     profile: { sub: string; email: string },
     deviceInfo?: DeviceInfo,
   ): Promise<GoogleLoginResult> {
+    const linkData = {
+      userId: user.id,
+      provider: 'google',
+      providerAccountId: profile.sub,
+      emailSnapshot: profile.email,
+    };
+
     try {
-      await this.prisma.linkedAccount.create({
-        data: {
-          userId: user.id,
-          provider: 'google',
-          providerAccountId: profile.sub,
-          emailSnapshot: profile.email,
-        },
-      });
+      if (user.emailVerified) {
+        // Conta já comprovada: a senha é do dono. Só liga — senha e nome intactos.
+        await this.prisma.linkedAccount.create({ data: linkData });
+      } else {
+        /*
+        Conta NÃO verificada: nada nela foi comprovado por quem é dono do
+        e-mail. É o cenário de PRÉ-SEQUESTRO — um atacante cadastra por senha
+        o e-mail da vítima e espera; quando a vítima entra pelo Google, manter
+        `User.password` faria a senha do ATACANTE logar na conta da vítima
+        (agora com `emailVerified: true`). Por isso, na MESMA transação do
+        vínculo:
+          - `password: null` (a conta vira só-Google; a pessoa define a sua
+            senha depois por `set-password` ou `forgot`→`reset`);
+          - `emailVerified: true` — o Google acabou de comprovar a mesma caixa
+            (sem isso a pessoa fica barrada para sempre no login por senha);
+          - apaga tokens pendentes que nasceram do cadastro não comprovado
+            (verificação, reset, troca de e-mail);
+          - revoga todas as `RefreshSession` existentes, antes da emissão da
+            sessão nova abaixo.
+        Transação: se o vínculo não for criado, nada é apagado; se a limpeza
+        falhar, o vínculo não fica. Spec login-google §"E-mail verificado na
+        auto-ligação".
+        */
+        await this.prisma.$transaction(async (tx) => {
+          await tx.linkedAccount.create({ data: linkData });
+          await tx.user.update({
+            where: { id: user.id },
+            data: {
+              password: null,
+              emailVerified: true,
+              emailVerificationToken: null,
+              emailVerificationTokenExpires: null,
+              passwordResetToken: null,
+              passwordResetExpires: null,
+              pendingEmail: null,
+              pendingEmailToken: null,
+              pendingEmailExpires: null,
+            },
+          });
+          await tx.refreshSession.deleteMany({ where: { userId: user.id } });
+        });
+      }
     } catch (err) {
       if (!this.isUniqueConstraintError(err)) {
         throw err;
       }
-      // vínculo criado concorrentemente entre o findUnique e aqui — ok, segue.
-    }
-
-    /*
-    E-mail verificado na auto-ligação: o Google acabou de comprovar a MESMA
-    caixa de e-mail que o nosso link de verificação comprovaria. Sem marcar
-    `emailVerified: true` aqui, uma conta que estava com o e-mail não
-    verificado fica barrada PARA SEMPRE no login por senha (que exige
-    `emailVerified`), inclusive depois de definir uma senha.
-    */
-    if (!user.emailVerified) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { emailVerified: true },
-      });
+      // Vínculo criado concorrentemente entre o findUnique e aqui — ok, segue.
+      // No ramo não verificado a transação inteira foi desfeita, mas a
+      // requisição que venceu leu o mesmo `emailVerified: false` e fez a
+      // limpeza na transação DELA (o P2002 só sai depois do commit dela).
     }
 
     const tokens = await this.generateTokens(user.id, user.email, deviceInfo);

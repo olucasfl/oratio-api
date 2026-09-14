@@ -46,9 +46,12 @@ mockado nos testes, HTTP externo mockado no nível do módulo).
      - **Não existe** → cria `User` (`name` = `name` do Google, `email`, `emailVerified: true`,
        `password: null`) **e** um `LinkedAccount`. Emite tokens. *(Cadastro novo.)*
      - **Existe** → cria um `LinkedAccount` ligado a esse `User` (auto-ligação — decisão da spec,
-       só chega aqui com `email_verified: true` já confirmado). **Se `User.emailVerified` for
-       `false`, passa para `true`** (ver "E-mail verificado na auto-ligação"). Emite tokens.
-       `User.password` e `User.name` **não são tocados**.
+       só chega aqui com `email_verified: true` já confirmado). Emite tokens.
+       - `User.emailVerified: true` → `User.password` e `User.name` **não são tocados**.
+       - `User.emailVerified: false` → na **mesma transação** do vínculo: `emailVerified: true`,
+         **`password: null`**, tokens pendentes limpos e todas as `RefreshSession` antigas
+         revogadas (ver "E-mail verificado na auto-ligação" — pré-sequestro de conta).
+         `User.name` não é tocado.
 5. Emissão de tokens: idêntica a `POST /auth/login` — reaproveita `AuthService.generateTokens`,
    que cria uma `RefreshSession` nova (com `userAgent`/`ipAddress` dos headers) e devolve
    `{ access_token, refresh_token }`.
@@ -62,6 +65,28 @@ pessoa entra por Google mas fica barrada **para sempre** no `login()` (que exige
 `emailVerified`), inclusive depois de definir uma senha por `set-password` ou pelo
 `forgot`→`reset`. Cadastro novo via Google (passo 4, "Não existe") já nasce com
 `emailVerified: true` — esta regra só estende o mesmo princípio ao `User` pré-existente.
+
+**E a senha desse cadastro não verificado é apagada** (decisão do dono, 2026-09-14, revisão
+pré-produção — substitui a regra anterior de "manter a senha"). O motivo é **pré-sequestro de
+conta**: qualquer pessoa pode cadastrar por senha o e-mail de outra e nunca verificar. Se a
+auto-ligação mantivesse `User.password`, no dia em que a dona do e-mail entrasse pelo Google a
+conta ficaria com `emailVerified: true` **e** a senha do atacante — que passaria a logar na conta
+da vítima. Um cadastro não verificado não comprovou nada, então nada dele merece confiança. Na
+mesma `$transaction` do `LinkedAccount`:
+
+- `password: null` e `emailVerified: true` (a conta vira só-Google; a pessoa define a própria
+  senha depois por `set-password` — que exige login Google recente, spec `prova-identidade` — ou
+  pelo `forgot`→`reset`);
+- limpa os tokens pendentes nascidos do cadastro não comprovado: `emailVerificationToken`/
+  `emailVerificationTokenExpires`, `passwordResetToken`/`passwordResetExpires`,
+  `pendingEmail`/`pendingEmailToken`/`pendingEmailExpires`;
+- apaga todas as `RefreshSession` desse usuário **antes** de emitir a sessão nova.
+
+Conta **já verificada** (`emailVerified: true`) mantém tudo como antes: a senha foi comprovada
+pelo dono do e-mail. O caminho de corrida (`P2002` → re-resolução) passa pela mesma função e tem o
+mesmo resultado; se a própria transação de limpeza perder a corrida no `@@unique` do vínculo, ela
+é desfeita inteira e a requisição vencedora é quem fez a limpeza. `User.name` continua intocado
+nos dois casos.
 
 ### Nome e foto
 
@@ -265,13 +290,23 @@ produção.** Fase E não muda o schema; a spec `boas-vindas` precisa do **próp
 - [x] **Dado** um `LinkedAccount` google já existente para o `sub` do token, **quando**
   `POST /auth/google` com `credential` válido, **então** 200 com par de tokens do usuário dono e
   **nenhuma** linha `User` ou `LinkedAccount` nova é criada.
-- [x] **Dado** um `User` e-mail+senha já cadastrado com o mesmo e-mail do token e **sem**
-  `LinkedAccount`, **quando** `POST /auth/google` com `credential` válido e `email_verified: true`,
-  **então** 200 com par de tokens **desse** usuário, uma linha `LinkedAccount` nova ligada a ele,
-  e `User.password` + `User.name` **inalterados**.
+- [x] **Dado** um `User` e-mail+senha **verificado** já cadastrado com o mesmo e-mail do token e
+  **sem** `LinkedAccount`, **quando** `POST /auth/google` com `credential` válido e
+  `email_verified: true`, **então** 200 com par de tokens **desse** usuário, uma linha
+  `LinkedAccount` nova ligada a ele, e `User.password` + `User.name` **inalterados**.
+- [x] ~~**Dado** um `User` e-mail+senha com `emailVerified: false` e sem `LinkedAccount`, **quando**
+  `POST /auth/google` auto-liga esse user, **então** `User.emailVerified` passa a `true`;
+  `password`/`name` continuam intactos.~~ **Substituído (2026-09-14, pré-sequestro de conta)** pelo
+  critério abaixo.
 - [x] **Dado** um `User` e-mail+senha com `emailVerified: false` e sem `LinkedAccount`, **quando**
-  `POST /auth/google` auto-liga esse user, **então** `User.emailVerified` passa a `true` (o teste
-  asserta o `data` do `user.update`); `password`/`name` continuam intactos.
+  `POST /auth/google` auto-liga esse user, **então**, numa `$transaction`: `emailVerified: true`,
+  `password: null`, tokens pendentes (verificação, reset, troca de e-mail) nulos, todas as
+  `RefreshSession` antigas apagadas antes da emissão da nova, e a resposta traz
+  `googleLinkedNow: true`; `name` intacto. O mesmo vale quando se chega aqui pelo caminho de
+  corrida (`P2002` no cadastro). *(`auth.service.spec.ts` — "A9 — auto-linking an UNVERIFIED
+  account…" e "A9/A10 — race path…")*
+- [x] **Dado** a auto-ligação acima, **quando** `POST /auth/login` com a senha antiga do cadastro,
+  **então** 401 — a conta tem `password: null` (`auth.service.spec.ts` — "login — conta só-Google").
 - [x] **Dado** que dois `POST /auth/google` concorrentes chegam para o mesmo e-mail inédito (o
   2º encontra o `@@unique` já preenchido — `P2002`), **quando** o 2º é processado, **então**
   responde 200 com o par de tokens do `User` recém-criado, não 500.
