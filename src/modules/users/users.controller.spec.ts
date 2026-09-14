@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { UnauthorizedException } from '@nestjs/common';
+import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -261,6 +262,20 @@ describe('UsersController (delegation)', () => {
 
     expect(userService.getUserActivity).toHaveBeenCalledWith('admin-1', 'target-1');
   });
+
+  /*
+  Rotas idempotentes de "marcar" respondem 200, não o 201 padrão do @Post
+  (specs consentimento-privacidade e boas-vindas). Asserta o metadado que o
+  @HttpCode grava — é o que o Nest lê para escolher o status.
+  */
+  it.each(['acceptLegalTerms', 'markWelcomeSeen'] as const)(
+    '%s() responds 200 instead of the @Post default 201',
+    (method) => {
+      expect(
+        Reflect.getMetadata(HTTP_CODE_METADATA, UsersController.prototype[method]),
+      ).toBe(200);
+    },
+  );
 
   it('acceptLegalTerms() rejects without a userId', () => {
     expect(() => controller.acceptLegalTerms(unauthed)).toThrow(UnauthorizedException);

@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
   Headers,
+  HttpCode,
   UnauthorizedException,
   Param,
   Query,
@@ -66,6 +67,7 @@ export class UsersController {
   nunca do corpo (RULES §5). Sem corpo. Resposta: { ok: true }.
   */
   @Post('me/welcome-seen')
+  @HttpCode(200) // marca estado de forma idempotente, não cria recurso (spec boas-vindas)
   @UseGuards(JwtAuthGuard)
   markWelcomeSeen(@Req() req: any) {
 
@@ -86,6 +88,7 @@ export class UsersController {
   jeito que markWelcomeSeen — sempre regrava (ver o service).
   */
   @Post('me/legal-terms-accepted')
+  @HttpCode(200) // regrava o aceite, não cria recurso (spec consentimento-privacidade)
   @UseGuards(JwtAuthGuard)
   acceptLegalTerms(@Req() req: any) {
 
