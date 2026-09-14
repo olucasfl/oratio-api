@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
   Headers,
+  HttpCode,
   UnauthorizedException,
   Param,
   Query,
@@ -66,6 +67,7 @@ export class UsersController {
   nunca do corpo (RULES §5). Sem corpo. Resposta: { ok: true }.
   */
   @Post('me/welcome-seen')
+  @HttpCode(200) // marca estado de forma idempotente, não cria recurso (spec boas-vindas)
   @UseGuards(JwtAuthGuard)
   markWelcomeSeen(@Req() req: any) {
 
@@ -86,6 +88,7 @@ export class UsersController {
   jeito que markWelcomeSeen — sempre regrava (ver o service).
   */
   @Post('me/legal-terms-accepted')
+  @HttpCode(200) // regrava o aceite, não cria recurso (spec consentimento-privacidade)
   @UseGuards(JwtAuthGuard)
   acceptLegalTerms(@Req() req: any) {
 
@@ -307,7 +310,8 @@ export class UsersController {
   /*
   Definir a primeira senha (conta que entrou só por Google). Mesma pilha de
   guard/throttle do change-password. `x-app` não é exigido (o change-password
-  também não exige).
+  também não exige). Corpo: { password, confirmPassword, googleCredential } —
+  o `googleCredential` é a prova de login Google recente (spec prova-identidade).
   */
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard, ThrottlerGuard)
@@ -327,6 +331,7 @@ export class UsersController {
       userId,
       body.password,
       body.confirmPassword,
+      body.googleCredential,
     );
   }
 

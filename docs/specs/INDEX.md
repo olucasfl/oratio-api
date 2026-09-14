@@ -87,6 +87,22 @@ Gaps reais que precisam de dono — não são specs nem pendências de deploy.
     em-place na versão `2026-09-11` (ninguém em produção tinha aceitado).
   - **Não existe exclusão de contas inativas por 24 meses, nem aviso por e-mail antes.** A
     política (§8) declara os dois como fato. Ainda aberto — não bloqueia o lançamento.
+- **Itens baixos do `/review-pr` da subida (2026-09-14), registrados como dívida por decisão de
+  Lucas:**
+  - DTOs sem `@MaxLength` (`google-login.dto.ts` `credential`, `delete-account.dto.ts`,
+    `set-password.dto.ts`, `create-user.dto.ts` `name`); o bcrypt só considera 72 bytes da senha.
+    O throttle limita o abuso.
+  - `AuthService` cria `new OAuth2Client` a cada verificação do Google — sem cache das chaves
+    entre requisições (latência extra em `/auth/google` e na prova de identidade).
+  - **Rollback**: voltar o Render para a `main` antiga depois desta subida quebra as contas
+    só-Google (`bcrypt.compare(x, null)` no código velho → 500 no login por senha e no
+    `DELETE /users/me`). Rollback de código não é "gratuito" depois que existem contas só-Google.
+  - `npm run lint` não roda (a config do ESLint ignora os globs passados) e ainda tem `--fix`.
+  - A prova Google só confere validade do id_token (até 1h), sem `iat`/`auth_time`/nonce — fora
+    de escopo na spec `prova-identidade`.
+  - **Build do Render**: o Build Command deve gerar o Prisma Client explicitamente
+    (`npm install && npx prisma generate && npm run build`). Localmente o client velho derrubou
+    a API com 12 erros de tipo e o `npm test` não pegou (Jest não confere tipos).
 - **`oratio/docs/ARCHITECTURE.md` ainda cita `guestAllowedPrefixes`** (§3/§7/quirks) como se
   fosse uma lista real no código — não é. Checado nesta revisão (2026-09-11):
   `oratio-api/docs/ARCHITECTURE.md` **não** tem essa menção (busca sem resultado) — só o

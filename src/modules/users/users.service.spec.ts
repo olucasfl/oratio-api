@@ -463,39 +463,95 @@ describe('UsersService', () => {
   });
 
   describe('setPassword', () => {
+    const CREDENTIAL = 'fresh-google-id-token';
+
+    // login Google recente cujo sub é um LinkedAccount DESTE usuário
+    const ownGoogleProof = (userId: string) => {
+      authService.verifyGoogleIdentity.mockResolvedValue({
+        sub: 'google-sub-own',
+        email: 'usuario@exemplo.com',
+        name: 'Fulano de Tal',
+      });
+      prisma.linkedAccount.findUnique.mockResolvedValue({
+        userId,
+        provider: 'google',
+        providerAccountId: 'google-sub-own',
+      });
+    };
+
     it('rejects when the two fields do not match', async () => {
       await expect(
-        service.setPassword('user-1', 'BrandNew123', 'Different123'),
+        service.setPassword('user-1', 'BrandNew123', 'Different123', CREDENTIAL),
       ).rejects.toMatchObject({ message: 'As senhas não conferem' });
       expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(authService.verifyGoogleIdentity).not.toHaveBeenCalled();
     });
 
     it('throws when the user no longer exists', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       await expect(
-        service.setPassword('ghost', 'BrandNew123', 'BrandNew123'),
+        service.setPassword('ghost', 'BrandNew123', 'BrandNew123', CREDENTIAL),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(authService.verifyGoogleIdentity).not.toHaveBeenCalled();
     });
 
-    it('409 when the account already has a password (points to change-password)', async () => {
+    it('409 when the account already has a password — BEFORE verifying the Google credential', async () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'user-1', password: 'existing-hash' });
 
       await expect(
-        service.setPassword('user-1', 'BrandNew123', 'BrandNew123'),
+        service.setPassword('user-1', 'BrandNew123', 'BrandNew123', CREDENTIAL),
       ).rejects.toMatchObject({
         message:
           'Esta conta já tem uma senha. Use "Trocar senha" nas configurações (é preciso informar a senha atual).',
       });
+      expect(authService.verifyGoogleIdentity).not.toHaveBeenCalled();
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
-    it('sets the hashed password and does NOT revoke any session', async () => {
+    it('400 and password NOT written when the Google credential belongs to another account', async () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      authService.verifyGoogleIdentity.mockResolvedValue({
+        sub: 'sub-de-outra-conta',
+        email: 'outra@exemplo.com',
+        name: 'Beltrano',
+      });
+      prisma.linkedAccount.findUnique.mockResolvedValue({
+        userId: 'outro-user',
+        provider: 'google',
+        providerAccountId: 'sub-de-outra-conta',
+      });
+
+      await expect(
+        service.setPassword('user-google', 'BrandNew123', 'BrandNew123', 'token-de-outra-conta'),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: 'Não foi possível confirmar sua identidade.',
+      });
+      expect(authService.verifyGoogleIdentity).toHaveBeenCalledWith('token-de-outra-conta');
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('401 bubbles up and password NOT written when the Google credential is invalid/expired', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      authService.verifyGoogleIdentity.mockRejectedValue(
+        new UnauthorizedException('Não foi possível validar seu login com o Google. Tente de novo.'),
+      );
+
+      await expect(
+        service.setPassword('user-google', 'BrandNew123', 'BrandNew123', 'expired'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('with a fresh credential of its own link: sets the hashed password and does NOT revoke any session', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-google', password: null });
+      ownGoogleProof('user-google');
       prisma.user.update.mockResolvedValue({});
 
-      const result = await service.setPassword('user-google', 'BrandNew123', 'BrandNew123');
+      const result = await service.setPassword('user-google', 'BrandNew123', 'BrandNew123', CREDENTIAL);
 
       expect(result).toEqual({ message: 'Senha definida.' });
+      expect(authService.verifyGoogleIdentity).toHaveBeenCalledWith(CREDENTIAL);
 
       const updateArgs = prisma.user.update.mock.calls[0][0];
       expect(updateArgs.where).toEqual({ id: 'user-google' });
@@ -679,7 +735,7 @@ describe('UsersService', () => {
       await expect(
         service.deleteAccount('user-google', {}),
       ).rejects.toMatchObject({
-        message: 'Não foi possível confirmar sua identidade para excluir a conta.',
+        message: 'Não foi possível confirmar sua identidade.',
       });
       expect(authService.verifyGoogleIdentity).not.toHaveBeenCalled();
       expect(prisma.user.delete).not.toHaveBeenCalled();
