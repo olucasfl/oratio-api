@@ -340,8 +340,20 @@ export class UsersService {
   Aquelas revogam porque uma senha que existia deixou de valer; aqui nada
   foi invalidado (não havia senha), então revogar só deslogaria a própria
   pessoa sem ganho de segurança.
+
+  Exige prova de identidade fresca (`googleCredential`, login Google recente)
+  via `assertFreshProof`: o 409 só barra conta que JÁ tem senha; numa conta
+  só-Google, uma sessão roubada criaria uma senha conhecida pelo atacante e
+  ganharia acesso persistente. Ordem: senhas diferentes → 400; user sumiu →
+  401; já tem senha → 409 (antes de verificar o Google); id_token inválido →
+  401; `sub` que não é um LinkedAccount DESTE user → 400; só então grava.
   */
-  async setPassword(userId: string, password: string, confirmPassword: string) {
+  async setPassword(
+    userId: string,
+    password: string,
+    confirmPassword: string,
+    googleCredential: string,
+  ) {
 
     if (password !== confirmPassword) {
       throw new BadRequestException('As senhas não conferem');
@@ -361,6 +373,9 @@ export class UsersService {
         'Esta conta já tem uma senha. Use "Trocar senha" nas configurações (é preciso informar a senha atual).',
       );
     }
+
+    // Só o Google conta aqui: a conta não tem senha (o 409 acima garante).
+    await this.assertFreshProof(userId, { googleCredential });
 
     const hashed = await bcrypt.hash(password, 10);
 
@@ -516,8 +531,8 @@ export class UsersService {
   /*
   Confirma que a requisição traz uma prova de identidade FRESCA — não só a
   posse do access token (roubável via XSS, dispositivo destravado, etc.).
-  Hoje só o `deleteAccount` consome; fica pronto para reuso (trocar e-mail,
-  etc.).
+  Consumidores: `deleteAccount` (senha OU Google) e `setPassword` (só Google —
+  a conta não tem senha). Mensagens genéricas, sem citar a operação.
 
   Qual prova vale sai do que a conta REALMENTE tem, não de
   `user.password == null` (era esse o bug: uma conta com senha E Google não
@@ -579,17 +594,13 @@ export class UsersService {
       // Token válido do Google, mas de outra conta Google que não está
       // ligada a este usuário -> não é prova para esta conta.
       if (!link || link.userId !== userId) {
-        throw new BadRequestException(
-          'Não foi possível confirmar sua identidade para excluir a conta.',
-        );
+        throw new BadRequestException('Não foi possível confirmar sua identidade.');
       }
 
       return;
     }
 
-    throw new BadRequestException(
-      'Não foi possível confirmar sua identidade para excluir a conta.',
-    );
+    throw new BadRequestException('Não foi possível confirmar sua identidade.');
   }
 
   /*

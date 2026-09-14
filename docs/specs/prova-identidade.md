@@ -48,7 +48,8 @@ nullable e `AuthService.verifyGoogleIdentity` já existem (login-google). É afr
 ### A primitiva — `assertFreshProof(userId, proof)`
 
 Um helper em `UsersService` que centraliza "esta requisição traz uma prova de identidade fresca?".
-Hoje só o `deleteAccount` o consome; fica pronto para reuso. `proof: { password?: string; googleCredential?: string }`:
+Consumidores: `deleteAccount` e, desde 2026-09-14, `setPassword` (ver "Definir a primeira senha").
+`proof: { password?: string; googleCredential?: string }`:
 
 1. Carrega o `user` (com `password`) e os `LinkedAccount` `google` dele.
 2. **Se `proof.password` veio E `user.password != null`:** `bcrypt.compare`. Bateu → prova
@@ -58,8 +59,9 @@ Hoje só o `deleteAccount` o consome; fica pronto para reuso. `proof: { password
    `payload.sub` tem que casar **um `LinkedAccount` `google` deste `userId`**. Bateu → prova
    válida. `sub` de outra conta / sem `LinkedAccount` → **400** (não 500). `credential`
    inválido/expirado → o **401** do helper propaga.
-4. **Nenhuma prova válida** → **400** `Não foi possível confirmar sua identidade para excluir a
-   conta.` (mensagem que o ramo só-Google já usa hoje).
+4. **Nenhuma prova válida** → **400** `Não foi possível confirmar sua identidade.` O mesmo texto
+   vale para o `sub` de outra conta no passo 3. *(Até 2026-09-14 era "…para excluir a conta.";
+   generalizado quando o `set-password` passou a usar a mesma primitiva.)*
 
 **Por que a segurança NÃO afrouxa.** A propriedade que importa —
 *"uma sessão roubada não pode, sozinha, apagar a conta"* (`ARCHITECTURE.md` §7) — continua
@@ -88,6 +90,28 @@ o dono legítimo** que perdeu acesso a um dos dois métodos.
     que conseguir.
 - Falhas: senha errada → 401 + mensagem, conta intacta; Google de outra conta → 400 + mensagem,
   conta intacta, **nenhum token limpo**.
+
+### Definir a primeira senha — `POST /users/me/set-password` (2026-09-14)
+
+Entrou no escopo na revisão pré-produção (decisão do dono). Antes, a rota definia a primeira
+senha de uma conta só-Google só com o access token. O `409` barrava conta que **já** tinha senha,
+mas numa conta só-Google uma sessão roubada criava uma senha conhecida pelo atacante: acesso
+persistente mesmo depois de a sessão expirar. Agora a rota exige um **login Google recente**.
+
+- **Request:** `{ password: string, confirmPassword: string, googleCredential: string }`.
+  `googleCredential` é obrigatório no DTO (`@IsString` + `@IsNotEmpty`, mensagem
+  "Confirme sua identidade entrando com o Google."). Ausente ou vazio → **400** do ValidationPipe.
+- **Ordem no service:**
+  1. `password !== confirmPassword` → **400** `As senhas não conferem`;
+  2. usuário não existe → **401**;
+  3. conta já tem senha → **409** (antes de verificar o Google: não gasta a verificação e não
+     muda a mensagem que aponta para "Trocar senha");
+  4. `assertFreshProof(userId, { googleCredential })`: id_token inválido/expirado → **401** do
+     `verifyGoogleIdentity`; `sub` que não é um `LinkedAccount` google **deste** usuário → **400**
+     `Não foi possível confirmar sua identidade.`;
+  5. grava o hash. Resposta de sucesso inalterada: `200 { message: "Senha definida." }`.
+- Só o Google conta como prova aqui, porque a conta não tem senha (passo 3). Continua **sem**
+  revogar `RefreshSession`.
 
 ### Correção do sintoma 2 — trocar senha sem lembrar a atual
 
@@ -173,7 +197,20 @@ já existem.
   `googleCredential`, **então** 401 e `user.delete` **não** é chamado (regressão do caminho
   antigo — o `users.service.spec.ts` já cobre).
 - [x] **Dado** nenhuma credencial no corpo, **quando** `DELETE /users/me`, **então** 400
-  ("Não foi possível confirmar sua identidade para excluir a conta.") — `users.service.spec.ts`.
+  ("Não foi possível confirmar sua identidade.") — `users.service.spec.ts`.
+
+### Backend — `set-password` (2026-09-14, cobertos por teste automatizado)
+
+- [x] **Dado** um corpo sem `googleCredential`, **quando** `POST /users/me/set-password`, **então**
+  400 de validação. *(`set-password.dto.spec.ts`)*
+- [x] **Dado** uma conta só-Google, **quando** `POST /users/me/set-password` com um
+  `googleCredential` cujo `sub` é de **outra** conta, **então** 400 e a senha **não** é gravada.
+- [x] **Dado** uma conta só-Google, **quando** `POST /users/me/set-password` com um
+  `googleCredential` inválido/expirado, **então** 401 e a senha **não** é gravada.
+- [x] **Dado** uma conta só-Google, **quando** `POST /users/me/set-password` com um
+  `googleCredential` fresco do próprio vínculo, **então** 200 e o hash é gravado.
+- [x] **Dado** uma conta que já tem senha, **quando** `POST /users/me/set-password`, **então**
+  409 **sem** chamar a verificação do Google. *(`users.service.spec.ts` — "setPassword")*
 - [x] **Dado** um token de **outro** usuário, **quando** `DELETE /users/me`, **então** só a
   conta **do token** é avaliada — `userId` vem sempre de `req.user.userId` (`users.controller.ts`).
 - [x] **Dado** um `User` com Google ligado, **quando** `GET /users/me`, **então** a resposta
@@ -207,11 +244,12 @@ Loop de verificação: `npm test -- <pattern>` → `npm test` → `npm run build
 
 - **Segundo fator / TOTP / e-mail de confirmação de exclusão.** A prova continua sendo senha ou
   Google fresco — não muda o modelo, só amplia.
-- **`POST /users/me/set-password` com `googleCredential`** (reautenticar pelo Google para trocar
-  a senha sem a atual). Considerado e descartado: o sintoma 2 é resolvido de graça reusando
-  `forgot-password` → `reset-password`, sem DTO novo nem prova nova no backend.
-- **Reautenticação para outras operações** (trocar e-mail, etc.) — `assertFreshProof` fica
-  pronto para reuso, mas ampliar o alcance é decisão à parte.
+- ~~**`POST /users/me/set-password` com `googleCredential`**. Descartado em 2026-09-10.~~
+  **Entrou no escopo em 2026-09-14** com outro objetivo: não é trocar a senha sem a atual (isso
+  segue pelo `forgot`→`reset`), é exigir prova para definir a **primeira** senha. Ver
+  "Definir a primeira senha".
+- **Reautenticação para outras operações** (trocar e-mail, etc.) — ampliar o alcance além de
+  `deleteAccount` e `setPassword` é decisão à parte.
 - **Login com Apple / outros provedores** — só `google` existe.
 - **Processo:** atualizar `ARCHITECTURE.md` §7 (feito no commit da implementação); criar o
   ponteiro no `oratio`; revisar contrato com o frontend.

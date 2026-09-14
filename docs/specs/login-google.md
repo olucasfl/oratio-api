@@ -109,7 +109,8 @@ nos dois casos.
   e-mail é comprovadamente entregável). A resposta continua genérica — nenhum vazamento novo.
   `resetPassword` já revoga todas as `RefreshSession`; isso se mantém.
 - **Definir senha autenticado** (`POST /users/me/set-password`): aceita **só** quando
-  `user.password` é `null`. Se a conta já tem senha → **409**, com mensagem mandando usar
+  `user.password` é `null` **e**, desde 2026-09-14, com `googleCredential` de um login Google
+  recente deste usuário (spec `prova-identidade`, "Definir a primeira senha"). Se a conta já tem senha → **409**, com mensagem mandando usar
   "Trocar senha" (que exige a senha atual). O **409 é o que protege** contra uma sessão de acesso
   roubada: sem senha antiga, não há como "roubar" uma troca, e o único risco real — alguém com
   sessão roubada de uma conta que **já tem** dono com senha — é justamente o que o 409 barra.
@@ -152,9 +153,12 @@ remover um `LinkedAccount`.
 | `GOOGLE_CLIENT_ID` não configurada no ambiente | 503 | `{ message: "Login com Google indisponível no momento." }` | sim (erro de config) |
 | `set-password` numa conta que já tem senha | 409 | `{ message: "Esta conta já tem uma senha. Use \"Trocar senha\" nas configurações (é preciso informar a senha atual)." }` | não |
 | `set-password` sem `Authorization` / token inválido | 401 | padrão do `JwtAuthGuard` | não |
-| `set-password` com `password` != `confirmPassword` | 400 | `{ message: [...] }` | não |
+| `set-password` com `password` != `confirmPassword` | 400 | `{ message: "As senhas não conferem" }` | não |
+| `set-password` sem `googleCredential` (2026-09-14) | 400 | `{ message: [...] }` (ValidationPipe) | não |
+| `set-password` com `googleCredential` inválido/expirado | 401 | `{ message: "Não foi possível validar seu login com o Google. Tente de novo." }` | não |
+| `set-password` com `googleCredential` cujo `sub` não é um `LinkedAccount` do user | 400 | `{ message: "Não foi possível confirmar sua identidade." }` | não |
 | `change-password` numa conta só-Google (`password: null`) | 409 | `{ message: "Esta conta não tem senha. Use \"Definir senha\" para criar uma." }` | não |
-| `DELETE /users/me` numa conta só-Google **sem** `googleCredential` (ou com um cujo `sub` não bate um `LinkedAccount` do user) | 400 | `{ message: "Não foi possível confirmar sua identidade para excluir a conta." }` | não |
+| `DELETE /users/me` numa conta só-Google **sem** `googleCredential` (ou com um cujo `sub` não bate um `LinkedAccount` do user) | 400 | `{ message: "Não foi possível confirmar sua identidade." }` | não |
 | `DELETE /users/me` numa conta só-Google com `googleCredential` inválido/expirado | 401 | `{ message: "Não foi possível validar seu login com o Google. Tente de novo." }` (helper do `POST /auth/google`) | não |
 | Corrida: 2º `POST /auth/google` concorrente para o mesmo e-mail inédito | 200 (não 500) | par de tokens normal | não — o `P2002` do Prisma é capturado e o fluxo re-resolve |
 
@@ -204,12 +208,15 @@ Sem fronteira de dia nova. Expiração do `id_token` é `exp` (epoch UTC), verif
   |---|---|---|
   | `password` | string | `@IsString`, `@MinLength(8)` (alinhar com o DTO de reset atual) |
   | `confirmPassword` | string | `@IsString`; igualdade checada no service (como `create` de `UsersService` já faz para registro) |
+  | `googleCredential` | string | `@IsString` + `@IsNotEmpty` (2026-09-14). id_token de um login Google recente; verificado por `assertFreshProof` (spec `prova-identidade`) |
 - **`userId`:** de `req.user.userId`, **nunca** do corpo (`RULES.md` §5).
 - **Response 200:** `{ "message": "Senha definida." }`
 - **Efeito colateral:** grava `bcrypt.hash(password, 10)` em `User.password`. **Nada além disso** —
   nenhuma `RefreshSession` é tocada (ver "Comportamento esperado → Conta só-Google" para o porquê
   da diferença em relação a `changePassword`).
-- **Erros:** 400 (DTO inválido / senhas diferentes), 401 (sem token), 409 (conta já tem senha), 429.
+- **Erros:** 400 (DTO inválido, sem `googleCredential`, senhas diferentes, ou `sub` que não é
+  deste user), 401 (sem token, ou id_token inválido/expirado), 409 (conta já tem senha, checado
+  antes do Google), 429.
 
 ### Frontend (contrato consumido — detalhe em `oratio/docs/specs/login-google.md`)
 

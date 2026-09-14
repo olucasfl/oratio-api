@@ -307,7 +307,8 @@ export class UsersController {
   /*
   Definir a primeira senha (conta que entrou só por Google). Mesma pilha de
   guard/throttle do change-password. `x-app` não é exigido (o change-password
-  também não exige).
+  também não exige). Corpo: { password, confirmPassword, googleCredential } —
+  o `googleCredential` é a prova de login Google recente (spec prova-identidade).
   */
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard, ThrottlerGuard)
@@ -327,6 +328,7 @@ export class UsersController {
       userId,
       body.password,
       body.confirmPassword,
+      body.googleCredential,
     );
   }
 

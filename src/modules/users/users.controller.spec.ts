@@ -315,18 +315,20 @@ describe('UsersController (delegation)', () => {
     ).toThrow(UnauthorizedException);
   });
 
-  it('setPassword() delegates password and confirmation', () => {
+  it('setPassword() delegates password, confirmation and the Google identity proof', () => {
     userService.setPassword.mockReturnValue('set');
 
     controller.setPassword(authed('user-1'), {
       password: 'BrandNew123',
       confirmPassword: 'BrandNew123',
-    } as any);
+      googleCredential: 'fresh.google.id-token',
+    });
 
     expect(userService.setPassword).toHaveBeenCalledWith(
       'user-1',
       'BrandNew123',
       'BrandNew123',
+      'fresh.google.id-token',
     );
   });
 
