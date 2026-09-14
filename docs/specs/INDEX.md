@@ -79,17 +79,19 @@ Gaps reais que precisam de dono — não são specs nem pendências de deploy.
   (`specs/consentimento-privacidade.md`, ✅ aprovada) e está **bloqueado** por
   `specs/vox-protocolo-crise.md` antes de publicar (ver tabela acima), e implementação ainda não
   começou.
-- **A Política de Privacidade já aprovada declara três coisas como fato que ainda não são
+- **A Política de Privacidade aprovada declarava três coisas como fato que não eram
   verdade** (achado ao escrever/revisar `consentimento-privacidade.md`, 2026-09-11 —
   `oratio/docs/legal/2026-09-11-politica-de-privacidade.md` §8 principalmente):
-  - `RefreshSession.location` deveria ser removido — é derivável do IP, sem finalidade declarada
-    em lugar nenhum, e a política promete tratar dado técnico com propósito claro.
-  - **Não existe job de limpeza de sessões expiradas.** A política (§8) promete "registros de
-    acesso... mantidos... por um período curto" após o fim da sessão — os únicos
-    `refreshSession.deleteMany` hoje (`auth.service.ts:534` logout, `auth.service.ts:769`
-    revogação por reset de senha) são ação do usuário, não expiração por tempo.
+  - ~~`RefreshSession.location` sem finalidade declarada~~ — **resolvido 2026-09-14**: a §8
+    passou a declarar a localização aproximada obtida do IP e a finalidade (mostrar em quais
+    aparelhos a pessoa está conectada). A coluna fica.
+  - ~~Promessa de "período curto" sem job de limpeza~~ — **resolvido 2026-09-14 reescrevendo a
+    frase**, não criando job (`oratio` `fix/politica-retencao-sessoes`): registros de acesso
+    ficam enquanto a conta existir; saem por logout (`auth.service.ts:534`), encerramento na
+    tela de sessões, troca/reset de senha (`auth.service.ts:769`) ou exclusão da conta. Editado
+    em-place na versão `2026-09-11` (ninguém em produção tinha aceitado).
   - **Não existe exclusão de contas inativas por 24 meses, nem aviso por e-mail antes.** A
-    política (§8) declara os dois como fato.
+    política (§8) declara os dois como fato. Ainda aberto — não bloqueia o lançamento.
 - **`oratio/docs/ARCHITECTURE.md` ainda cita `guestAllowedPrefixes`** (§3/§7/quirks) como se
   fosse uma lista real no código — não é. Checado nesta revisão (2026-09-11):
   `oratio-api/docs/ARCHITECTURE.md` **não** tem essa menção (busca sem resultado) — só o
