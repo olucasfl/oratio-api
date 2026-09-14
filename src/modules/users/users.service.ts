@@ -13,6 +13,8 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { AppType } from 'src/enums/app-type.enum';
+import { AuthService } from '../auth/auth.service';
+import { LEGAL_TERMS_VERSION } from './legal-terms-version';
 
 @Injectable()
 export class UsersService {
@@ -20,6 +22,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly authService: AuthService,
   ) {}
 
   /*
@@ -61,6 +64,13 @@ export class UsersService {
         emailVerified: false,
         emailVerificationToken: token,
         emailVerificationTokenExpires: expires,
+        // Grava na MESMA escrita — não uma chamada separada depois. A conta
+        // nasce sem sessão (cadastro por senha exige verificar o email antes
+        // do primeiro login), então não haveria token para chamar uma rota
+        // autenticada logo em seguida. `legalTermsAccepted` já foi validado
+        // como `true` pelo DTO (`@Equals(true)`) antes de chegar aqui.
+        legalTermsAcceptedAt: new Date(),
+        legalTermsVersion: LEGAL_TERMS_VERSION,
       },
     });
 
@@ -108,9 +118,17 @@ export class UsersService {
         createdAt: true,
         emailVerified: true,
         isAdmin: true,
+        password: true,
+        welcomeSeenAt: true,
+        legalTermsAcceptedAt: true,
+        legalTermsVersion: true,
         spiritualStats: true,
         consecrations: true,
         completedConsecrationDays: { select: { id: true } },
+        linkedAccounts: {
+          where: { provider: 'google' },
+          select: { id: true },
+        },
       },
     });
 
@@ -127,6 +145,30 @@ export class UsersService {
     createdAt: user.createdAt,
     emailVerified: user.emailVerified,
     isAdmin: user.isAdmin,
+
+    // Conta que entrou só por Google nasce sem senha. O frontend usa isso
+    // para mostrar "Definir senha" em vez de "Trocar senha" (que exige a
+    // senha atual) — nunca expõe o hash em si.
+    hasPassword: user.password != null,
+
+    // Conta com Google ligado. Espelha `hasPassword`: o frontend precisa
+    // saber que a conta tem OS DOIS métodos para oferecer senha + Google no
+    // modal de exclusão (spec prova-identidade). Aditivo, sem schema — só
+    // lê `LinkedAccount`.
+    hasGoogle: user.linkedAccounts.length > 0,
+
+    // Guia de boas-vindas: aparece só na primeira entrada, uma vez. Mesmo
+    // desenho de `showVoxIntro` — o shell do frontend redireciona pra
+    // /oratio/boas-vindas enquanto isto for true (spec boas-vindas).
+    showWelcome: user.welcomeSeenAt == null,
+
+    // Aceite do par Termos de Uso + Política de Privacidade (spec
+    // consentimento-privacidade.md). `true` só quando a pessoa aceitou E a
+    // versão aceita bate com a atual — quem aceitou uma versão antiga do
+    // par (o texto mudou) fica `false` de novo, igual a quem nunca aceitou.
+    legalTermsAccepted:
+      user.legalTermsAcceptedAt != null &&
+      user.legalTermsVersion === LEGAL_TERMS_VERSION,
 
     spiritualProgress: {
 
@@ -150,20 +192,87 @@ export class UsersService {
 
   /*
   =============================
+  GUIA DE BOAS-VINDAS — concluído
+  =============================
+  Carimba `welcomeSeenAt` ao concluir a última página do guia. Espelha
+  `markIntroSeen` do Vox (sem corpo, resposta `{ ok: true }`), mas é
+  IDEMPOTENTE: chamar de novo numa conta que já tem a data não mexe no
+  timestamp — se a pessoa fechar o app no meio, o guia recomeça da página 1
+  no próximo login (welcomeSeenAt segue null), e só o "Começar" da última
+  página encerra pra sempre.
+  */
+  async markWelcomeSeen(userId: string) {
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { welcomeSeenAt: true },
+    });
+
+    if (user && !user.welcomeSeenAt) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { welcomeSeenAt: new Date() },
+      });
+    }
+
+    return { ok: true };
+  }
+
+  /*
+  =============================
+  CONSENTIMENTO — Termos de Uso + Política de Privacidade
+  =============================
+  Diferente de `markWelcomeSeen`, este endpoint NÃO é idempotente do mesmo
+  jeito (que só carimba se ainda `null`, porque "visto o guia" não tem
+  versão). Aqui SEMPRE regrava `legalTermsAcceptedAt`/`legalTermsVersion` —
+  chamar de novo com a mesma versão atual é um no-op observável (o
+  resultado final é o mesmo), mas chamar depois de um bump de versão
+  precisa CONSEGUIR regravar, para registrar o reaceite.
+  */
+  async acceptLegalTerms(userId: string) {
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        legalTermsAcceptedAt: new Date(),
+        legalTermsVersion: LEGAL_TERMS_VERSION,
+      },
+    });
+
+    return { ok: true };
+  }
+
+  /*
+  =============================
   UPDATE NAME
   =============================
   */
 
   async updateProfile(userId: string, name: string) {
 
+    /*
+    Lista branca explícita no próprio `select`, igual ao `create` — não um
+    spread do user menos a senha. O `User` também carrega
+    `emailVerificationToken`, `passwordResetToken` e `pendingEmailToken`;
+    espalhar tudo e só tirar `password` deixava os três vazarem no corpo da
+    resposta, e o de verificação de email permitia se auto-verificar sem
+    nunca abrir o email.
+    */
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { name },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        pendingEmail: true,
+        createdAt: true,
+        emailVerified: true,
+        isAdmin: true,
+      },
     });
 
-    const { password, ...safeUser } = user;
-
-    return safeUser;
+    return user;
   }
 
   /*
@@ -180,6 +289,17 @@ export class UsersService {
 
     if (!user) {
       throw new UnauthorizedException();
+    }
+
+    /*
+    Conta só-Google: não existe "senha atual" para conferir, e
+    `bcrypt.compare(x, null)` lança. 409 explícito apontando para "definir
+    senha" — não pode depender de o frontend esconder o botão de troca.
+    */
+    if (!user.password) {
+      throw new ConflictException(
+        'Esta conta não tem senha. Use "Definir senha" para criar uma.',
+      );
     }
 
     const matches = await bcrypt.compare(currentPassword, user.password);
@@ -203,6 +323,68 @@ export class UsersService {
     });
 
     return { message: 'Password changed successfully' };
+
+  }
+
+  /*
+  =============================
+  DEFINIR SENHA (autenticado, sem senha atual)
+  =============================
+  Para quem entrou só por Google e ainda não tem senha. Só aceita quando
+  `User.password` é null. Se já houver senha, 409 — a rota certa aí é
+  `change-password` (que exige a senha atual). Isso fecha o caminho de
+  alguém com uma sessão de acesso roubada CRIAR uma senha e persistir numa
+  conta que já tinha dono.
+
+  NÃO revoga `RefreshSession` — diferente de `changePassword`/`resetPassword`.
+  Aquelas revogam porque uma senha que existia deixou de valer; aqui nada
+  foi invalidado (não havia senha), então revogar só deslogaria a própria
+  pessoa sem ganho de segurança.
+
+  Exige prova de identidade fresca (`googleCredential`, login Google recente)
+  via `assertFreshProof`: o 409 só barra conta que JÁ tem senha; numa conta
+  só-Google, uma sessão roubada criaria uma senha conhecida pelo atacante e
+  ganharia acesso persistente. Ordem: senhas diferentes → 400; user sumiu →
+  401; já tem senha → 409 (antes de verificar o Google); id_token inválido →
+  401; `sub` que não é um LinkedAccount DESTE user → 400; só então grava.
+  */
+  async setPassword(
+    userId: string,
+    password: string,
+    confirmPassword: string,
+    googleCredential: string,
+  ) {
+
+    if (password !== confirmPassword) {
+      throw new BadRequestException('As senhas não conferem');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    if (user.password) {
+      throw new ConflictException(
+        'Esta conta já tem uma senha. Use "Trocar senha" nas configurações (é preciso informar a senha atual).',
+      );
+    }
+
+    // Só o Google conta aqui: a conta não tem senha (o 409 acima garante).
+    await this.assertFreshProof(userId, { googleCredential });
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    });
+
+    return { message: 'Senha definida.' };
 
   }
 
@@ -347,26 +529,93 @@ export class UsersService {
   */
 
   /*
-  Exige a senha atual antes de apagar — sem isso, só a posse do access
-  token (roubável via XSS, dispositivo destravado, etc.) já bastava pra
-  destruir a conta inteira e todo o histórico, sem chance de confirmação
-  nem de estorno.
+  Confirma que a requisição traz uma prova de identidade FRESCA — não só a
+  posse do access token (roubável via XSS, dispositivo destravado, etc.).
+  Consumidores: `deleteAccount` (senha OU Google) e `setPassword` (só Google —
+  a conta não tem senha). Mensagens genéricas, sem citar a operação.
+
+  Qual prova vale sai do que a conta REALMENTE tem, não de
+  `user.password == null` (era esse o bug: uma conta com senha E Google não
+  alcançava o ramo do Google). Uma conta com os dois métodos prova com
+  qualquer um — quem esqueceu a senha usa o Google, quem está sem o celular
+  usa a senha.
+
+  - `proof.password` + a conta TEM senha -> `bcrypt.compare`. Não bate -> 401.
+  - senão `proof.googleCredential` -> `AuthService.verifyGoogleIdentity` (a
+    MESMA verificação do POST /auth/google: assinatura, `aud`, `exp`,
+    `email_verified`) e o `sub` precisa casar um `LinkedAccount` google
+    DESTE usuário. `sub` de outra conta / sem vínculo -> 400 (nunca 500).
+    `credential` inválido/expirado -> o 401 do verificador propaga.
+  - nenhuma prova válida -> 400.
+
+  A segurança NÃO afrouxa (ARCHITECTURE.md §5/§7): não removemos a exigência
+  de prova, só ampliamos QUAIS provas contam. Um atacante com o access token
+  não sabe a senha e não produz um id_token fresco com o `sub` da vítima —
+  "senha OU Google fresco" não abre nada que "só senha" já não abrisse.
   */
-  async deleteAccount(userId: string, password: string) {
+  private async assertFreshProof(
+    userId: string,
+    proof: { password?: string; googleCredential?: string },
+  ): Promise<void> {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
+      select: { id: true, password: true },
     });
 
     if (!user) {
       throw new UnauthorizedException();
     }
 
-    const matches = await bcrypt.compare(password, user.password);
+    if (proof.password && user.password != null) {
+      const matches = await bcrypt.compare(proof.password, user.password);
 
-    if (!matches) {
-      throw new UnauthorizedException('Senha incorreta');
+      if (!matches) {
+        throw new UnauthorizedException('Senha incorreta');
+      }
+
+      return;
     }
+
+    if (proof.googleCredential) {
+      const identity = await this.authService.verifyGoogleIdentity(
+        proof.googleCredential,
+      );
+
+      const link = await this.prisma.linkedAccount.findUnique({
+        where: {
+          provider_providerAccountId: {
+            provider: 'google',
+            providerAccountId: identity.sub,
+          },
+        },
+      });
+
+      // Token válido do Google, mas de outra conta Google que não está
+      // ligada a este usuário -> não é prova para esta conta.
+      if (!link || link.userId !== userId) {
+        throw new BadRequestException('Não foi possível confirmar sua identidade.');
+      }
+
+      return;
+    }
+
+    throw new BadRequestException('Não foi possível confirmar sua identidade.');
+  }
+
+  /*
+  Apaga a conta (cascade) depois de `assertFreshProof`. Sem essa prova, só a
+  posse do access token já bastava pra destruir a conta inteira e todo o
+  histórico, sem confirmação nem estorno. Não conseguir excluir seria
+  problema de LGPD, por isso a prova aceita senha OU Google — nunca só o
+  token.
+  */
+  async deleteAccount(
+    userId: string,
+    proof: { password?: string; googleCredential?: string },
+  ) {
+
+    await this.assertFreshProof(userId, proof);
 
     await this.prisma.user.delete({
       where: { id: userId },
@@ -388,7 +637,16 @@ export class UsersService {
     }
   }
 
-  async getAllUsers(userId: string, filters?: { search?: string; isAdmin?: boolean; emailVerified?: boolean; activeLastDays?: number }) {
+  async getAllUsers(
+    userId: string,
+    filters?: {
+      search?: string;
+      isAdmin?: boolean;
+      emailVerified?: boolean;
+      activeLastDays?: number;
+      provider?: 'oratio' | 'google' | 'both';
+    },
+  ) {
     await this.assertAdmin(userId);
 
     const where: any = {};
@@ -407,6 +665,21 @@ export class UsersService {
     if (filters?.emailVerified !== undefined) {
         where.emailVerified = filters.emailVerified;
       }
+
+    // Método de entrada (spec admin-provedor). Três estados, não dois: uma
+    // conta pode ter senha E Google ao mesmo tempo. As cláusulas entram no
+    // mesmo `where` (AND com os outros filtros). Valor inválido já virou
+    // `undefined` no controller — aqui não cai em nenhum ramo.
+    if (filters?.provider === 'oratio') {
+      where.password = { not: null };
+      where.linkedAccounts = { none: {} };
+    } else if (filters?.provider === 'google') {
+      where.password = null;
+      where.linkedAccounts = { some: { provider: 'google' } };
+    } else if (filters?.provider === 'both') {
+      where.password = { not: null };
+      where.linkedAccounts = { some: {} };
+    }
 
         if (filters?.activeLastDays) {
     const daysAgo = new Date();
@@ -437,7 +710,7 @@ export class UsersService {
     ];
   }
 
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where,
       select: {
         id: true,
@@ -447,11 +720,21 @@ export class UsersService {
         emailVerified: true,
         isAdmin: true,
         spiritualStats: true,
+        // Só para derivar os booleanos — o hash NUNCA vai no retorno (mapeia
+        // e descarta, como `getProfile`).
+        password: true,
+        linkedAccounts: { select: { provider: true } },
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
+
+    return users.map(({ password, linkedAccounts, ...rest }) => ({
+      ...rest,
+      hasPassword: password != null,
+      authProviders: linkedAccounts.map((l) => l.provider),
+    }));
   }
 
   async getUserDetail(userId: string, targetUserId: string) {
@@ -476,6 +759,10 @@ export class UsersService {
         },
         consecrations: true,
         completedConsecrationDays: true,
+        // Método de entrada (spec admin-provedor) — hash descartado, só o
+        // booleano e a lista de provedores vão no corpo.
+        password: true,
+        linkedAccounts: { select: { provider: true } },
       },
     });
 
@@ -483,11 +770,15 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
+    const { password, linkedAccounts, ...safe } = user;
+
     return {
-      ...user,
+      ...safe,
+      hasPassword: password != null,
+      authProviders: linkedAccounts.map((l) => l.provider),
       consecration: {
-        started: user.consecrations.length > 0,
-        daysCompleted: user.completedConsecrationDays.length,
+        started: safe.consecrations.length > 0,
+        daysCompleted: safe.completedConsecrationDays.length,
       },
       consecrations: undefined,
       completedConsecrationDays: undefined,

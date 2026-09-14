@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes, createHash } from 'crypto';
+import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import { MailService } from '../mail/mail.service';
 import { Response } from 'express';
 import { AppType } from 'src/enums/app-type.enum';
@@ -11,6 +13,25 @@ import { parseDeviceLabel, resolveLocation } from './utils/session-info.util';
 export interface DeviceInfo {
   userAgent?: string;
   ipAddress?: string;
+}
+
+/*
+Resultado do POST /auth/google. Além do par de tokens (mesmo shape do login),
+dois booleanos que dizem ao frontend O QUE aconteceu nesta requisição
+(spec login-google §"Fase E → E2"):
+  - isNewUser        -> um User foi CRIADO agora (cadastro via Google)
+  - googleLinkedNow  -> um LinkedAccount foi criado agora para um User que JÁ
+                        existia (auto-ligação)
+Login recorrente (o LinkedAccount já existia) = os dois false. Nunca os dois
+true. Consumidores: tela de boas-vindas (isNewUser), toast de auto-ligação
+(googleLinkedNow), bloqueio de cadastro repetido na tela /register (isNewUser).
+Só chega junto com um par de tokens válido — não é vazamento.
+*/
+export interface GoogleLoginResult {
+  access_token: string;
+  refresh_token: string;
+  isNewUser: boolean;
+  googleLinkedNow: boolean;
 }
 
 @Injectable()
@@ -66,6 +87,25 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    /*
+    Conta só-Google (criada por login social, sem senha). Responde 401 com
+    mensagem ESPECÍFICA — decisão da Fase E, revertendo o erro genérico da
+    Fase A (spec login-google §"Fase E → E1"). Sim, isso revela que a conta
+    existe e é só-Google; aceito porque:
+      - o app já vaza existência pela MESMA rota ("Please verify your email
+        before logging in" só aparece pra conta existente não-verificada);
+      - o @Throttle(5/60s) do controller limita varredura em massa;
+      - quem bate aqui é quase sempre o dono legítimo que esqueceu o método.
+    `bcrypt.compare(x, null)` lançaria, então isto barra antes, como antes.
+    Quem quer senha entra pelo Google e usa "Definir senha", ou "esqueci
+    minha senha".
+    */
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'Esta conta entra com o Google. Use o botão "Continuar com o Google" abaixo.',
+      );
+    }
+
     const passwordMatches = await bcrypt.compare(password, user.password);
 
     if (!passwordMatches) {
@@ -78,6 +118,323 @@ export class AuthService {
 
     return this.generateTokens(user.id, user.email, deviceInfo);
 
+  }
+
+  /*
+  =============================
+  LOGIN COM GOOGLE
+  =============================
+  Fluxo: o frontend manda o id_token (JWT) que o Google Identity Services
+  entregou no callback do botão. O backend verifica e resolve/cria a conta,
+  devolvendo o MESMO par { access_token, refresh_token } do login normal.
+  Detalhe em docs/specs/login-google.md.
+  */
+
+  private readonly GOOGLE_ISSUERS = [
+    'accounts.google.com',
+    'https://accounts.google.com',
+  ];
+
+  private getGoogleClientId(): string {
+    const id = process.env.GOOGLE_CLIENT_ID;
+    if (!id) {
+      // 503, não 500: é config faltando, não bug. O frontend trata como
+      // "indisponível" e mantém o login por senha.
+      throw new ServiceUnavailableException(
+        'Login com Google indisponível no momento.',
+      );
+    }
+    return id;
+  }
+
+  /*
+  Verifica o id_token e devolve só o que a resolução de conta precisa.
+  `client.verifyIdToken` já valida assinatura (chaves públicas do Google),
+  `aud` (== nosso client id), `iss` e `exp`. Reforçamos o `iss` de forma
+  explícita (a spec exige) e exigimos `email_verified === true` — essa a lib
+  NÃO checa, e sem ela a auto-ligação vira caminho de tomada de conta.
+  */
+  private async verifyGoogleCredential(
+    credential: string,
+  ): Promise<{ sub: string; email: string; name: string }> {
+
+    const clientId = this.getGoogleClientId();
+    const client = new OAuth2Client(clientId);
+
+    let payload: TokenPayload | undefined;
+
+    try {
+      const ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: clientId,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException(
+        'Não foi possível validar seu login com o Google. Tente de novo.',
+      );
+    }
+
+    if (
+      !payload ||
+      !payload.sub ||
+      !payload.email ||
+      !this.GOOGLE_ISSUERS.includes(payload.iss)
+    ) {
+      throw new UnauthorizedException(
+        'Não foi possível validar seu login com o Google. Tente de novo.',
+      );
+    }
+
+    if (payload.email_verified !== true) {
+      throw new UnauthorizedException(
+        'Seu e-mail no Google não está verificado. Confirme seu e-mail na sua Conta Google e tente de novo — ou crie sua conta do Oratio com e-mail e senha.',
+      );
+    }
+
+    return {
+      sub: payload.sub,
+      email: payload.email.trim().toLowerCase(),
+      // `name` só é usado na CRIAÇÃO da conta (nunca sobrescreve depois).
+      // `User.name` é obrigatório no schema; fallback defensivo caso o Google
+      // não devolva (não deveria, com o escopo `profile`).
+      name: payload.name?.trim() || payload.email.split('@')[0],
+    };
+  }
+
+  /*
+  Reusado pelo `UsersService` para excluir uma conta só-Google: como não há
+  senha para confirmar a intenção, a prova de identidade é um id_token fresco
+  do Google (mesma verificação do POST /auth/google). Devolve o `sub` para
+  casar com um `LinkedAccount` do usuário.
+  */
+  async verifyGoogleIdentity(credential: string) {
+    return this.verifyGoogleCredential(credential);
+  }
+
+  // Compõe o resultado do /auth/google: tokens + os flags do desfecho.
+  private withGoogleFlags(
+    tokens: { access_token: string; refresh_token: string },
+    flags: { isNewUser: boolean; googleLinkedNow: boolean },
+  ): GoogleLoginResult {
+    return { ...tokens, ...flags };
+  }
+
+  async loginWithGoogle(
+    credential: string,
+    deviceInfo?: DeviceInfo,
+  ): Promise<GoogleLoginResult> {
+
+    const profile = await this.verifyGoogleCredential(credential);
+
+    // 1. Já existe um vínculo Google para este `sub`? -> login direto.
+    const link = await this.prisma.linkedAccount.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: 'google',
+          providerAccountId: profile.sub,
+        },
+      },
+    });
+
+    if (link) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: link.userId },
+      });
+      if (!user) {
+        // vínculo órfão (não deveria existir — onDelete Cascade cuida disso)
+        throw new UnauthorizedException(
+          'Não foi possível validar seu login com o Google. Tente de novo.',
+        );
+      }
+      // login recorrente: o vínculo já existia, nada foi criado agora
+      const tokens = await this.generateTokens(user.id, user.email, deviceInfo);
+      return this.withGoogleFlags(tokens, {
+        isNewUser: false,
+        googleLinkedNow: false,
+      });
+    }
+
+    // 2. Já existe um User com este e-mail? -> auto-ligação.
+    const existing = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+
+    if (existing) {
+      return this.linkGoogleAndIssue(existing, profile, deviceInfo);
+    }
+
+    // 3. Cadastro novo. User + vínculo numa transação pra nunca deixar um
+    //    User sem senha e sem vínculo (que não conseguiria logar de jeito
+    //    nenhum).
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            name: profile.name,
+            email: profile.email,
+            emailVerified: true,
+            password: null,
+          },
+        });
+        await tx.linkedAccount.create({
+          data: {
+            userId: user.id,
+            provider: 'google',
+            providerAccountId: profile.sub,
+            emailSnapshot: profile.email,
+          },
+        });
+        return user;
+      });
+      // cadastro novo via Google
+      const tokens = await this.generateTokens(
+        created.id,
+        created.email,
+        deviceInfo,
+      );
+      return this.withGoogleFlags(tokens, {
+        isNewUser: true,
+        googleLinkedNow: false,
+      });
+    } catch (err) {
+      if (!this.isUniqueConstraintError(err)) {
+        throw err;
+      }
+      // Corrida: dois cliques no botão -> duas requisições concorrentes pro
+      // mesmo e-mail/sub inédito. A 2ª bate no @@unique. Re-resolve uma vez
+      // (agora o vínculo ou o User já existem) em vez de estourar 500.
+      return this.resolveGoogleAfterRace(profile, deviceInfo);
+    }
+  }
+
+  // Sempre chamada quando um LinkedAccount está sendo criado AGORA para um
+  // User que já existia -> googleLinkedNow: true, isNewUser: false.
+  private async linkGoogleAndIssue(
+    user: { id: string; email: string; emailVerified: boolean },
+    profile: { sub: string; email: string },
+    deviceInfo?: DeviceInfo,
+  ): Promise<GoogleLoginResult> {
+    const linkData = {
+      userId: user.id,
+      provider: 'google',
+      providerAccountId: profile.sub,
+      emailSnapshot: profile.email,
+    };
+
+    try {
+      if (user.emailVerified) {
+        // Conta já comprovada: a senha é do dono. Só liga — senha e nome intactos.
+        await this.prisma.linkedAccount.create({ data: linkData });
+      } else {
+        /*
+        Conta NÃO verificada: nada nela foi comprovado por quem é dono do
+        e-mail. É o cenário de PRÉ-SEQUESTRO — um atacante cadastra por senha
+        o e-mail da vítima e espera; quando a vítima entra pelo Google, manter
+        `User.password` faria a senha do ATACANTE logar na conta da vítima
+        (agora com `emailVerified: true`). Por isso, na MESMA transação do
+        vínculo:
+          - `password: null` (a conta vira só-Google; a pessoa define a sua
+            senha depois por `set-password` ou `forgot`→`reset`);
+          - `emailVerified: true` — o Google acabou de comprovar a mesma caixa
+            (sem isso a pessoa fica barrada para sempre no login por senha);
+          - apaga tokens pendentes que nasceram do cadastro não comprovado
+            (verificação, reset, troca de e-mail);
+          - revoga todas as `RefreshSession` existentes, antes da emissão da
+            sessão nova abaixo.
+        Transação: se o vínculo não for criado, nada é apagado; se a limpeza
+        falhar, o vínculo não fica. Spec login-google §"E-mail verificado na
+        auto-ligação".
+        */
+        await this.prisma.$transaction(async (tx) => {
+          await tx.linkedAccount.create({ data: linkData });
+          await tx.user.update({
+            where: { id: user.id },
+            data: {
+              password: null,
+              emailVerified: true,
+              emailVerificationToken: null,
+              emailVerificationTokenExpires: null,
+              passwordResetToken: null,
+              passwordResetExpires: null,
+              pendingEmail: null,
+              pendingEmailToken: null,
+              pendingEmailExpires: null,
+              // aceite dos Termos/Política dado por quem criou o cadastro não
+              // comprovado não é consentimento da dona do e-mail: o gate pede
+              // de novo no primeiro acesso dela
+              legalTermsAcceptedAt: null,
+              legalTermsVersion: null,
+            },
+          });
+          await tx.refreshSession.deleteMany({ where: { userId: user.id } });
+        });
+      }
+    } catch (err) {
+      if (!this.isUniqueConstraintError(err)) {
+        throw err;
+      }
+      // Vínculo criado concorrentemente entre o findUnique e aqui — ok, segue.
+      // No ramo não verificado a transação inteira foi desfeita, mas a
+      // requisição que venceu leu o mesmo `emailVerified: false` e fez a
+      // limpeza na transação DELA (o P2002 só sai depois do commit dela).
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, deviceInfo);
+    return this.withGoogleFlags(tokens, {
+      isNewUser: false,
+      googleLinkedNow: true,
+    });
+  }
+
+  private async resolveGoogleAfterRace(
+    profile: { sub: string; email: string },
+    deviceInfo?: DeviceInfo,
+  ): Promise<GoogleLoginResult> {
+    const link = await this.prisma.linkedAccount.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: 'google',
+          providerAccountId: profile.sub,
+        },
+      },
+    });
+
+    if (link) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: link.userId },
+      });
+      if (user) {
+        // o vínculo foi criado pela requisição concorrente, não por esta
+        const tokens = await this.generateTokens(
+          user.id,
+          user.email,
+          deviceInfo,
+        );
+        return this.withGoogleFlags(tokens, {
+          isNewUser: false,
+          googleLinkedNow: false,
+        });
+      }
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+    if (user) {
+      return this.linkGoogleAndIssue(user, profile, deviceInfo);
+    }
+
+    // Os dois sumiram de novo entre uma query e outra — altamente improvável.
+    throw new ServiceUnavailableException(
+      'Não foi possível concluir o login com o Google. Tente de novo.',
+    );
+  }
+
+  private isUniqueConstraintError(err: unknown): boolean {
+    return (
+      err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+    );
   }
 
   private readonly REFRESH_TTL_MS = 1000 * 60 * 60 * 24 * 180;

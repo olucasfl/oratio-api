@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
   Headers,
+  HttpCode,
   UnauthorizedException,
   Param,
   Query,
@@ -15,7 +16,9 @@ import {
 
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SetPasswordDto } from './dto/set-password.dto';
 import { ChangeEmailDto } from './dto/change-email.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -57,6 +60,47 @@ export class UsersController {
     return this.userService.getProfile(userId);
   }
 
+  /*
+  Guia de boas-vindas concluído. Mesma pilha do GET /users/me (só
+  JwtAuthGuard) — chamada única por conta, sem throttle dedicado e sem X-App,
+  igual ao `POST oratio/voxai/profile/intro-seen`. `userId` vem do token,
+  nunca do corpo (RULES §5). Sem corpo. Resposta: { ok: true }.
+  */
+  @Post('me/welcome-seen')
+  @HttpCode(200) // marca estado de forma idempotente, não cria recurso (spec boas-vindas)
+  @UseGuards(JwtAuthGuard)
+  markWelcomeSeen(@Req() req: any) {
+
+    const userId = req?.user?.userId;
+
+    if (!userId) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.userService.markWelcomeSeen(userId);
+  }
+
+  /*
+  Aceite do PAR Termos de Uso + Política de Privacidade (spec
+  consentimento-privacidade.md). Mesma pilha do welcome-seen acima — só
+  JwtAuthGuard, sem X-App, sem throttle. Sem corpo, `userId` do token, nunca
+  do corpo (RULES §5). Resposta: { ok: true }. NÃO idempotente do mesmo
+  jeito que markWelcomeSeen — sempre regrava (ver o service).
+  */
+  @Post('me/legal-terms-accepted')
+  @HttpCode(200) // regrava o aceite, não cria recurso (spec consentimento-privacidade)
+  @UseGuards(JwtAuthGuard)
+  acceptLegalTerms(@Req() req: any) {
+
+    const userId = req?.user?.userId;
+
+    if (!userId) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.userService.acceptLegalTerms(userId);
+  }
+
   @Get('admin/users')
   @UseGuards(JwtAuthGuard, AdminGuard)
   getAllUsers(
@@ -65,6 +109,7 @@ export class UsersController {
     @Query('isAdmin') isAdmin?: string,
     @Query('emailVerified') emailVerified?: string,
     @Query('activeLastDays') activeLastDays?: string,
+    @Query('provider') provider?: string,
   ) {
     const userId = req?.user?.userId;
 
@@ -77,6 +122,12 @@ export class UsersController {
       isAdmin: isAdmin === 'true' ? true : isAdmin === 'false' ? false : undefined,
       emailVerified: emailVerified === 'true' ? true : emailVerified === 'false' ? false : undefined,
       activeLastDays: activeLastDays ? parseInt(activeLastDays) : undefined,
+      // Mesmo parsing tolerante de isAdmin/emailVerified: valor fora do
+      // esperado vira undefined (sem filtro), nunca 400.
+      provider:
+        provider === 'oratio' || provider === 'google' || provider === 'both'
+          ? (provider as 'oratio' | 'google' | 'both')
+          : undefined,
     };
 
     return this.userService.getAllUsers(userId, filters);
@@ -209,7 +260,7 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   updateProfile(
     @Req() req: any,
-    @Body() body: { name: string },
+    @Body() body: UpdateProfileDto,
   ) {
 
     const userId = req?.user?.userId;
@@ -253,6 +304,34 @@ export class UsersController {
       userId,
       body.currentPassword,
       body.newPassword,
+    );
+  }
+
+  /*
+  Definir a primeira senha (conta que entrou só por Google). Mesma pilha de
+  guard/throttle do change-password. `x-app` não é exigido (o change-password
+  também não exige). Corpo: { password, confirmPassword, googleCredential } —
+  o `googleCredential` é a prova de login Google recente (spec prova-identidade).
+  */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @Post('me/set-password')
+  setPassword(
+    @Req() req: any,
+    @Body() body: SetPasswordDto,
+  ) {
+
+    const userId = req?.user?.userId;
+
+    if (!userId) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.userService.setPassword(
+      userId,
+      body.password,
+      body.confirmPassword,
+      body.googleCredential,
     );
   }
 
@@ -342,7 +421,10 @@ export class UsersController {
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    return this.userService.deleteAccount(userId, body.password);
+    return this.userService.deleteAccount(userId, {
+      password: body.password,
+      googleCredential: body.googleCredential,
+    });
   }
 
 }

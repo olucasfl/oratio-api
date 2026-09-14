@@ -12,7 +12,12 @@ model User {
   id                            String                     @id @default(uuid())
   name                          String
   email                         String                     @unique
-  password                      String
+  // Opcional desde o login com Google: uma conta criada por provedor social
+  // nasce sem senha. `AuthService.login` trata `password == null` como
+  // credencial inválida (mesmo 401 de senha errada) antes de chamar o bcrypt,
+  // que quebra com null. Quem entrou só por Google define uma senha via
+  // `POST /users/me/set-password` ou pelo fluxo de "esqueci minha senha".
+  password                      String?
   createdAt                     DateTime                   @default(now())
   updatedAt                     DateTime                   @updatedAt
   refreshSessions               RefreshSession[]
@@ -39,6 +44,7 @@ model User {
   bibleMarks                    BibleMark[]
   bibleCollections              BibleCollection[]
   notificationProfile           UserNotificationProfile?
+  linkedAccounts                LinkedAccount[]
 
   // Perfil de resposta do VoxAI (chave de VOX_PROFILE_KEYS, ex.: "STUDY").
   // null = a pessoa nunca escolheu → comportamento = DEFAULT ("Padrão").
@@ -47,6 +53,25 @@ model User {
   // novidade. O onboarding do Vox só aparece enquanto voxProfile E
   // voxOnboardingSeenAt são ambos null.
   voxOnboardingSeenAt DateTime?
+
+  // Carimbado quando a pessoa CONCLUI o guia de boas-vindas (última página).
+  // `GET /users/me` devolve showWelcome = (welcomeSeenAt == null); o guia só
+  // aparece enquanto isto é null. Paralelo a voxOnboardingSeenAt. A migração
+  // faz backfill (welcomeSeenAt = now()) nas contas já existentes, para o
+  // guia só aparecer para quem se cadastrar DEPOIS do deploy
+  // (prisma/db-scripts/2026-09-10-boas-vindas.sql).
+  welcomeSeenAt DateTime?
+
+  // Aceite do PAR Termos de Uso + Política de Privacidade (spec
+  // consentimento-privacidade.md). `legalTermsVersion` compara com
+  // LEGAL_TERMS_VERSION (src/modules/users/legal-terms-version.ts) —
+  // `GET /users/me` só devolve legalTermsAccepted: true quando os dois
+  // baterem. SEM BACKFILL nesta coluna (é o OPOSTO do welcomeSeenAt): toda
+  // conta que já existe deve ver a tela pelo menos uma vez, porque nenhuma
+  // delas jamais deu este consentimento formalmente
+  // (prisma/db-scripts/2026-09-11-consentimento-privacidade.sql).
+  legalTermsAcceptedAt DateTime?
+  legalTermsVersion    String?
 }
 
 model PushSubscription {
@@ -78,6 +103,27 @@ model RefreshSession {
   location    String?
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+}
+
+// Vínculo entre um User e uma identidade de um provedor social (Google hoje;
+// o formato comporta Apple depois SEM mexer em User). Uma linha por
+// (provider, conta no provider). `providerAccountId` é o `sub` do id_token —
+// id opaco e estável do provedor, NUNCA o e-mail (o e-mail do Google pode
+// mudar; o `sub` não). `emailSnapshot` é o e-mail que o provedor afirmou
+// (com email_verified=true) no momento da ligação: registro para auditar
+// uma contestação futura, não fonte de login. A linha só é criada depois
+// de o backend confirmar email_verified=true.
+model LinkedAccount {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String // "google"
+  providerAccountId String
+  emailSnapshot     String
+  linkedAt          DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
   @@index([userId])
 }
 

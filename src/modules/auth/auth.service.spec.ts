@@ -16,7 +16,31 @@ jest.mock('./utils/session-info.util', () => ({
   resolveLocation: jest.fn(),
 }));
 
+jest.mock('google-auth-library');
+
 import { resolveLocation } from './utils/session-info.util';
+import { OAuth2Client } from 'google-auth-library';
+import { Prisma } from '@prisma/client';
+
+// Um único mock de verifyIdToken compartilhado por todos os OAuth2Client
+// instanciados dentro do serviço.
+const mockVerifyIdToken = jest.fn();
+(OAuth2Client as unknown as jest.Mock).mockImplementation(() => ({
+  verifyIdToken: mockVerifyIdToken,
+}));
+
+/** Payload sintético de um id_token válido do Google. */
+const googlePayload = (over: Record<string, unknown> = {}) => ({
+  getPayload: () => ({
+    sub: 'google-sub-1',
+    email: 'fulano@example.com',
+    email_verified: true,
+    iss: 'https://accounts.google.com',
+    aud: 'test-google-client-id',
+    name: 'Fulano de Tal',
+    ...over,
+  }),
+});
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -24,6 +48,7 @@ describe('AuthService', () => {
     user: {
       findUnique: jest.Mock;
       findFirst: jest.Mock;
+      create: jest.Mock;
       update: jest.Mock;
     };
     refreshSession: {
@@ -32,6 +57,11 @@ describe('AuthService', () => {
       update: jest.Mock;
       deleteMany: jest.Mock;
     };
+    linkedAccount: {
+      findUnique: jest.Mock;
+      create: jest.Mock;
+    };
+    $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let mailService: {
@@ -46,12 +76,16 @@ describe('AuthService', () => {
       ...ORIGINAL_ENV,
       JWT_SECRET_KEY: 'access-secret',
       JWT_REFRESH_SECRET: 'refresh-secret',
+      GOOGLE_CLIENT_ID: 'test-google-client-id',
     };
+
+    mockVerifyIdToken.mockReset();
 
     prisma = {
       user: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
+        create: jest.fn(),
         update: jest.fn(),
       },
       refreshSession: {
@@ -60,6 +94,12 @@ describe('AuthService', () => {
         update: jest.fn(),
         deleteMany: jest.fn(),
       },
+      linkedAccount: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+      },
+      // callback form: roda o callback com o próprio mock como "tx"
+      $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(prisma)),
     };
 
     jwtService = {
@@ -621,6 +661,372 @@ describe('AuthService', () => {
       ).resolves.toBe(true);
       expect(updateArgs.data.passwordResetToken).toBeNull();
       expect(updateArgs.data.passwordResetExpires).toBeNull();
+    });
+
+    it('sets a password on an account that never had one (só-Google recovery)', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'user-google',
+        email: 'g@example.com',
+        password: null,
+        passwordResetToken: 'valid-token',
+        passwordResetExpires: new Date(Date.now() + 60_000),
+      });
+      prisma.user.update.mockResolvedValue({});
+      prisma.refreshSession.deleteMany.mockResolvedValue({ count: 0 });
+
+      await service.resetPassword('valid-token', 'BrandNew123');
+
+      const updateArgs = prisma.user.update.mock.calls[0][0];
+      await expect(
+        bcrypt.compare('BrandNew123', updateArgs.data.password),
+      ).resolves.toBe(true);
+      // reset sempre revoga as sessões
+      expect(prisma.refreshSession.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-google' },
+      });
+    });
+  });
+
+  describe('login — conta só-Google (password: null)', () => {
+    // Também é a garantia pós-auto-ligação de conta NÃO verificada (A9): com a
+    // senha apagada (`password: null`), a senha antiga do cadastro passa a 401.
+    it('rejects password login with a Google-specific 401 message (Fase E / E1)', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-google',
+        email: 'g@example.com',
+        password: null,
+        emailVerified: true,
+      });
+
+      // A mensagem prova que o guard `!user.password` disparou ANTES do bcrypt:
+      // `bcrypt.compare(x, null)` real lançaria "data and hash arguments
+      // required", uma mensagem diferente. (bcrypt não é mockável aqui — é
+      // binding nativo —, então a mensagem exata É a asserção do caminho.)
+      await expect(
+        service.login('g@example.com', 'anything'),
+      ).rejects.toMatchObject({
+        message:
+          'Esta conta entra com o Google. Use o botão "Continuar com o Google" abaixo.',
+      });
+    });
+  });
+
+  describe('loginWithGoogle', () => {
+
+    const validCredential = 'valid.google.jwt';
+
+    beforeEach(() => {
+      jwtService.sign
+        .mockReturnValue('access-token')
+        .mockReturnValueOnce('access-token')
+        .mockReturnValueOnce('refresh-token');
+      prisma.refreshSession.create.mockResolvedValue({});
+    });
+
+    // ---- verificação do id_token (A2) ----
+
+    it('503 when GOOGLE_CLIENT_ID is not configured', async () => {
+      delete process.env.GOOGLE_CLIENT_ID;
+
+      await expect(service.loginWithGoogle(validCredential)).rejects.toMatchObject({
+        message: 'Login com Google indisponível no momento.',
+      });
+      expect(mockVerifyIdToken).not.toHaveBeenCalled();
+    });
+
+    it('401 when the signature / token is invalid (verifyIdToken throws)', async () => {
+      mockVerifyIdToken.mockRejectedValue(new Error('Invalid token signature'));
+
+      await expect(service.loginWithGoogle(validCredential)).rejects.toMatchObject({
+        message: 'Não foi possível validar seu login com o Google. Tente de novo.',
+      });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(prisma.linkedAccount.create).not.toHaveBeenCalled();
+    });
+
+    it('401 when verifyIdToken rejects an expired token', async () => {
+      mockVerifyIdToken.mockRejectedValue(new Error('Token used too late'));
+      await expect(service.loginWithGoogle(validCredential)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('passes our client id as the audience to verifyIdToken', async () => {
+      mockVerifyIdToken.mockRejectedValue(new Error('nope'));
+      await service.loginWithGoogle(validCredential).catch(() => undefined);
+      expect(mockVerifyIdToken).toHaveBeenCalledWith({
+        idToken: validCredential,
+        audience: 'test-google-client-id',
+      });
+    });
+
+    it('401 when the issuer is not a Google issuer', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload({ iss: 'https://evil.example.com' }));
+
+      await expect(service.loginWithGoogle(validCredential)).rejects.toMatchObject({
+        message: 'Não foi possível validar seu login com o Google. Tente de novo.',
+      });
+    });
+
+    it('401 (own message) and touches nothing when email_verified is false', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload({ email_verified: false }));
+
+      await expect(service.loginWithGoogle(validCredential)).rejects.toMatchObject({
+        message:
+          'Seu e-mail no Google não está verificado. Confirme seu e-mail na sua Conta Google e tente de novo — ou crie sua conta do Oratio com e-mail e senha.',
+      });
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(prisma.linkedAccount.create).not.toHaveBeenCalled();
+    });
+
+    it('401 when email_verified is missing entirely', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload({ email_verified: undefined }));
+      await expect(service.loginWithGoogle(validCredential)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    // ---- resolução de conta (A3) ----
+
+    it('logs in directly when a LinkedAccount already exists for the sub', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue({
+        userId: 'user-1',
+        provider: 'google',
+        providerAccountId: 'google-sub-1',
+      });
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'fulano@example.com',
+      });
+
+      const result = await service.loginWithGoogle(validCredential);
+
+      // login recorrente (E2): o vínculo já existia -> os dois flags false
+      expect(result).toEqual({
+        access_token: 'access-token',
+        refresh_token: 'refresh-token',
+        isNewUser: false,
+        googleLinkedNow: false,
+      });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(prisma.linkedAccount.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a new User (no password, emailVerified true) + LinkedAccount for a new email', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({ id: 'new-user', email: 'fulano@example.com' });
+      prisma.linkedAccount.create.mockResolvedValue({});
+
+      const result = await service.loginWithGoogle(validCredential);
+
+      expect(result.access_token).toBe('access-token');
+      // cadastro novo via Google (E2)
+      expect(result).toMatchObject({ isNewUser: true, googleLinkedNow: false });
+
+      const userData = prisma.user.create.mock.calls[0][0].data;
+      expect(userData).toMatchObject({
+        name: 'Fulano de Tal',
+        email: 'fulano@example.com',
+        emailVerified: true,
+        password: null,
+      });
+      // Regressão (spec consentimento-privacidade.md): auth.service.ts NUNCA
+      // grava consentimento, nem no cadastro novo via Google — a tela só
+      // aparece depois, pelo frontend (POST /users/me/legal-terms-accepted).
+      expect(userData.legalTermsAcceptedAt).toBeUndefined();
+      expect(userData.legalTermsVersion).toBeUndefined();
+
+      const linkData = prisma.linkedAccount.create.mock.calls[0][0].data;
+      expect(linkData).toMatchObject({
+        userId: 'new-user',
+        provider: 'google',
+        providerAccountId: 'google-sub-1',
+        emailSnapshot: 'fulano@example.com',
+      });
+    });
+
+    it('auto-links an existing email+password account without touching password/name', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'existing-user',
+        email: 'fulano@example.com',
+        emailVerified: true,
+        password: 'existing-hash',
+        name: 'Nome Editado No App',
+      });
+      prisma.linkedAccount.create.mockResolvedValue({});
+
+      const result = await service.loginWithGoogle(validCredential);
+
+      expect(result.access_token).toBe('access-token');
+      // auto-ligação (E2): User já existia, vínculo criado agora
+      expect(result).toMatchObject({ isNewUser: false, googleLinkedNow: true });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+      // auto-link não mexe em password/name -> nenhum update (emailVerified já true)
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.linkedAccount.create.mock.calls[0][0].data.userId).toBe('existing-user');
+    });
+
+    /*
+    Pré-sequestro de conta: um atacante cadastra por senha o e-mail da vítima
+    (nunca verificado). Quando a vítima entra pelo Google, a auto-ligação NÃO
+    pode manter a senha do atacante — ela passaria a logar na conta da vítima.
+    */
+    const UNVERIFIED_WIPE = {
+      password: null,
+      emailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationTokenExpires: null,
+      passwordResetToken: null,
+      passwordResetExpires: null,
+      pendingEmail: null,
+      pendingEmailToken: null,
+      pendingEmailExpires: null,
+      legalTermsAcceptedAt: null,
+      legalTermsVersion: null,
+    };
+
+    it('A9 — auto-linking an UNVERIFIED account wipes the unproven password, pending tokens and old sessions', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'unverified-user',
+        email: 'fulano@example.com',
+        emailVerified: false,
+        password: 'attacker-hash',
+      });
+      prisma.linkedAccount.create.mockResolvedValue({});
+      prisma.user.update.mockResolvedValue({});
+      prisma.refreshSession.deleteMany.mockResolvedValue({ count: 2 });
+
+      const result = await service.loginWithGoogle(validCredential);
+
+      expect(result).toMatchObject({ isNewUser: false, googleLinkedNow: true });
+      // tudo numa transação só: vínculo + limpeza + revogação
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.linkedAccount.create.mock.calls[0][0].data.userId).toBe('unverified-user');
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'unverified-user' },
+        data: UNVERIFIED_WIPE,
+      });
+      expect(prisma.refreshSession.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'unverified-user' },
+      });
+      // as sessões antigas são revogadas ANTES da emissão da sessão nova
+      expect(prisma.refreshSession.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.refreshSession.create.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('A9 — a verified account keeps its password on auto-link (no wipe, no session revocation)', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'verified-user',
+        email: 'fulano@example.com',
+        emailVerified: true,
+        password: 'owner-hash',
+      });
+      prisma.linkedAccount.create.mockResolvedValue({});
+
+      await service.loginWithGoogle(validCredential);
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.refreshSession.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('A9 — the wipe transaction losing a P2002 race (link created concurrently) still issues tokens', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'unverified-user',
+        email: 'fulano@example.com',
+        emailVerified: false,
+        password: 'attacker-hash',
+      });
+      prisma.$transaction.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'test' }),
+      );
+
+      const result = await service.loginWithGoogle(validCredential);
+
+      // a requisição concorrente que venceu fez a limpeza na transação dela
+      expect(result).toMatchObject({ access_token: 'access-token', googleLinkedNow: true });
+      expect(prisma.refreshSession.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('A9/A10 — race path: signup P2002 re-resolving to an UNVERIFIED existing user applies the same wipe', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique
+        .mockResolvedValueOnce(null) // 1ª resolução: nenhum User com o e-mail
+        .mockResolvedValueOnce({
+          // re-resolução: um cadastro por senha não verificado apareceu
+          id: 'unverified-user',
+          email: 'fulano@example.com',
+          emailVerified: false,
+          password: 'attacker-hash',
+        });
+      prisma.$transaction.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'test' }),
+      );
+      prisma.linkedAccount.create.mockResolvedValue({});
+      prisma.user.update.mockResolvedValue({});
+      prisma.refreshSession.deleteMany.mockResolvedValue({ count: 0 });
+
+      const result = await service.loginWithGoogle(validCredential);
+
+      expect(result).toMatchObject({ isNewUser: false, googleLinkedNow: true });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'unverified-user' },
+        data: UNVERIFIED_WIPE,
+      });
+      expect(prisma.refreshSession.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'unverified-user' },
+      });
+    });
+
+    it('A10 — recovers from a concurrent-signup P2002 by re-resolving to the winner', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      // 1ª resolução: nada existe
+      prisma.linkedAccount.findUnique
+        .mockResolvedValueOnce(null)
+        // re-resolução após a corrida: o vínculo do vencedor já existe
+        .mockResolvedValueOnce({ userId: 'winner', provider: 'google', providerAccountId: 'google-sub-1' });
+      prisma.user.findUnique
+        .mockResolvedValueOnce(null) // 1ª: sem User pra esse e-mail
+        .mockResolvedValueOnce({ id: 'winner', email: 'fulano@example.com' }); // re-resolução
+
+      const p2002 = new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
+      });
+      prisma.$transaction.mockRejectedValue(p2002);
+
+      const result = await service.loginWithGoogle(validCredential);
+
+      // corrida (E2): o vínculo do vencedor foi encontrado na re-resolução,
+      // esta requisição não criou nada -> isNewUser false
+      expect(result).toEqual({
+        access_token: 'access-token',
+        refresh_token: 'refresh-token',
+        isNewUser: false,
+        googleLinkedNow: false,
+      });
+    });
+
+    it('rethrows a non-P2002 error from the signup transaction', async () => {
+      mockVerifyIdToken.mockResolvedValue(googlePayload());
+      prisma.linkedAccount.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.$transaction.mockRejectedValue(new Error('db down'));
+
+      await expect(service.loginWithGoogle(validCredential)).rejects.toThrow('db down');
     });
   });
 });
