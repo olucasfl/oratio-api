@@ -32,7 +32,7 @@ npx prisma generate
 npm run start:dev        # http://localhost:3000
 ```
 
-Variáveis de ambiente em `docs/ARCHITECTURE.md` §8. Precisa de um Postgres acessível
+Variáveis de ambiente em `docs/ARCHITECTURE.md` §9. Precisa de um Postgres acessível
 (`DATABASE_URL`) e do `JWT_SECRET_KEY`; VAPID (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`)
 e a chave do VoxAI são opcionais (as features desligam sozinhas se faltarem).
 
