@@ -5,7 +5,6 @@
 import {
   CAPACITY,
   ROUND1_LENGTH,
-  ROUND1_SEQUENCE,
   ROCK_MISSING_PENALTY,
 } from './domain/catalog';
 import { deriveJar, spaceForChoices } from './domain/rules';
@@ -37,6 +36,8 @@ export interface RoomRow {
 }
 
 export interface PlayerRow {
+  id?: string;
+  invitedAt?: Date;
   userId: string;
   displayName: string;
   joinedAt: Date | null;
@@ -68,6 +69,8 @@ export function buildPlayerView(
   player: PlayerRow,
   phase: PhaseName,
   commitment: string | null,
+  /** Ordem dos 19 itens da rodada 1 PARA ESTE jogador (sorteada, ver domain/order.ts). */
+  order: readonly string[],
 ) {
   const jar1 = deriveJar(player.round1Placed);
   const score1 = computeScore(player.round1Placed, 1);
@@ -80,7 +83,7 @@ export function buildPlayerView(
   const playing1 = player.statusRound1 === 'PLAYING';
   const currentItemId =
     playing1 && player.round1Index < ROUND1_LENGTH
-      ? ROUND1_SEQUENCE[player.round1Index].id
+      ? order[player.round1Index]
       : null;
 
   return {
@@ -90,6 +93,8 @@ export function buildPlayerView(
       index: player.round1Index,
       total: ROUND1_LENGTH,
       currentItemId,
+      // só o que já passou (a ordem do que vem por aí continua surpresa)
+      seen: order.slice(0, player.round1Index),
       placed: player.round1Placed,
       free: jar1.free,
       gaps: jar1.gaps,
@@ -163,8 +168,19 @@ export function buildLeaderPlayerView(player: PlayerRow, now: Date) {
 export const isActivePlayer = (p: Pick<PlayerRow, 'joinedAt' | 'removed'>) =>
   p.joinedAt !== null && !p.removed;
 
+/**
+ * Ordem ESTÁVEL dos jogadores: por quando foram convidados e, no empate, pelo id.
+ * Sem isso o banco devolve as linhas em qualquer ordem (muda a cada UPDATE) e a lista
+ * do líder ficava embaralhando — uma pessoa subia, outra descia, o tempo todo.
+ */
+export function byStableOrder(a: PlayerRow, b: PlayerRow): number {
+  const diff = (a.invitedAt?.getTime() ?? 0) - (b.invitedAt?.getTime() ?? 0);
+  if (diff !== 0) return diff;
+  return (a.id ?? a.userId).localeCompare(b.id ?? b.userId);
+}
+
 export function buildLeaderView(players: PlayerRow[], now: Date) {
-  const visible = players.filter((p) => !p.removed);
+  const visible = players.filter((p) => !p.removed).sort(byStableOrder);
   const active = visible.filter(isActivePlayer);
   const stats: PoteStats = buildStats(active);
   return {
@@ -172,5 +188,45 @@ export function buildLeaderView(players: PlayerRow[], now: Date) {
     joinedCount: active.length,
     invitedCount: visible.length,
     stats,
+  };
+}
+
+/**
+ * O estado completo que o jogador recebe (GET e respostas de ação), montado só com o
+ * que já está em memória — a sala e TODOS os jogadores vêm numa consulta única.
+ */
+export function buildPlayerState(
+  room: RoomRow & { id: string },
+  players: PlayerRow[],
+  userId: string,
+  now: Date,
+  order: readonly string[],
+  commitment: string | null = null,
+) {
+  const me = players.find((p) => p.userId === userId) as PlayerRow;
+  const active = players.filter(isActivePlayer);
+  return {
+    changed: true as const,
+    version: room.version,
+    role: 'PLAYER' as const,
+    room: buildRoomView(room, now),
+    me: buildPlayerView(me, room.phase, commitment, order),
+    // Sala de espera: quem já entrou (só nomes de exibição — nunca e-mail nem id).
+    // Só no LOBBY, para não pesar a resposta durante o jogo.
+    ...(room.phase === 'LOBBY' && {
+      lobby: {
+        players: [...active]
+          .sort(
+            (a, b) =>
+              (a.joinedAt as Date).getTime() - (b.joinedAt as Date).getTime() || byStableOrder(a, b),
+          )
+          .map((p) => ({ displayName: p.displayName, isMe: p.userId === userId })),
+      },
+    }),
+    progress: {
+      total: active.length,
+      round1Finished: active.filter((p) => p.statusRound1 === 'FINISHED').length,
+      round2Finished: active.filter((p) => p.statusRound2 === 'FINISHED').length,
+    },
   };
 }
