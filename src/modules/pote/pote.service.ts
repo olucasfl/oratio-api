@@ -8,7 +8,6 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
   ITEM_BY_ID,
-  ROCK_IDS,
   ROUND1_LENGTH,
   ROUND1_SEQUENCE,
   ROUND2_DEFAULT_SECONDS,
@@ -210,7 +209,14 @@ export class PoteService {
     const [others, commitment] = await Promise.all([
       this.prisma.potePlayer.findMany({
         where: { roomId: room.id },
-        select: { joinedAt: true, removed: true, statusRound1: true, statusRound2: true },
+        select: {
+          userId: true,
+          displayName: true,
+          joinedAt: true,
+          removed: true,
+          statusRound1: true,
+          statusRound2: true,
+        },
       }),
       this.prisma.poteCommitment.findUnique({
         where: { roomId_userId: { roomId: room.id, userId } },
@@ -225,6 +231,15 @@ export class PoteService {
       role: 'PLAYER' as const,
       room: buildRoomView(room, now),
       me: buildPlayerView(player, room.phase, commitment?.text ?? null),
+      // Sala de espera: quem já entrou, em tempo real (só nomes de exibição — nunca
+      // e-mail nem id). Só no LOBBY, para não pesar a resposta durante o jogo.
+      ...(room.phase === 'LOBBY' && {
+        lobby: {
+          players: [...active]
+            .sort((a, b) => (a.joinedAt as Date).getTime() - (b.joinedAt as Date).getTime())
+            .map((p) => ({ displayName: p.displayName, isMe: p.userId === userId })),
+        },
+      }),
       progress: {
         total: active.length,
         round1Finished: active.filter((p) => p.statusRound1 === 'FINISHED').length,
@@ -425,9 +440,8 @@ export class PoteService {
     if (!item) throw new BadRequestException('Item desconhecido.');
     return this.round2Mutate(code, userId, (placed) => {
       if (placed.includes(itemId)) return null; // já está: idempotente
-      if (item.category !== 'PEDRA' && !ROCK_IDS.every((id) => placed.includes(id))) {
-        throw new ConflictException('PEDRAS_PRIMEIRO');
-      }
+      // Sem bloqueio por categoria: cascalho e areia entram desde o início. Quem
+      // decide se cabe é só o pote (a pedra exige 20 livres; o resto usa os vãos).
       if (!canPlace(deriveJar(placed), item.category)) {
         throw new ConflictException('NAO_CABE');
       }

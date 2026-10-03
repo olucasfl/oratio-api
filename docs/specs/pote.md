@@ -49,24 +49,24 @@ Capacidade 100. Itens pequenos ocupam primeiro os vãos deixados pelas pedras j�
 
 | Categoria | Qtd. | Tamanho | Vão gerado |
 |---|---|---|---|
-| Pedra | 5 | 14 | 6 |
+| Pedra | 5 | 20 | 8 |
 | Cascalho | 14 | 5 | 0 |
 | Areia | 15 | 2 | 0 |
 
 Consequências que os testes confirmam:
-- **5 pedras primeiro** ocupam 70, geram 30 de vão, sobram 30 livres → 60 disponíveis para cascalho + areia. O catálogo tem 100 de cascalho + areia, então **não cabe tudo**.
-- **Rodada 1 pegando tudo:** 8 areias (16) + 6 cascalhos (30) = 46 gastos; sobram 54, cabem 3 pedras (42); **2 ficam de fora**.
+- **5 pedras primeiro** ocupam 100, geram 40 de vão, sobram 0 livres → **40** disponíveis para cascalho + areia (todo o espaço útil são os vãos). O catálogo tem 100 de cascalho + areia, então **não cabe tudo**.
+- **Rodada 1 pegando tudo** (na ordem fixa, com 2 pedras no meio): entram 3 pedras (Estudos, Sono, Família) e **2 ficam de fora** (Missa e Oração); sobram 10 livres. Sem nenhuma pedra, 8 areias + 6 cascalhos gastam 46 e sobram 54 (cabem 2 pedras). Quem ignora só as areias ainda perde uma pedra: para juntar as 5 é preciso deixar passar também cascalho.
 
 ### Algoritmo (função pura, sempre recalculada do zero a partir da lista ordenada)
 
 ```ts
 type Category = 'PEDRA' | 'CASCALHO' | 'AREIA';
 const CAPACITY = 100;
-const SIZE = { PEDRA: 14, CASCALHO: 5, AREIA: 2 };
+const SIZE = { PEDRA: 20, CASCALHO: 5, AREIA: 2 };
 const GAP  = { PEDRA: 6,  CASCALHO: 0, AREIA: 0 };
 interface JarState { free: number; gaps: number; placed: string[]; }
 
-canPlace(state, cat): PEDRA → free >= 14; senão → free >= SIZE[cat] - min(gaps, SIZE[cat])
+canPlace(state, cat): PEDRA → free >= 20; senão → free >= SIZE[cat] - min(gaps, SIZE[cat])
 place(state, itemId, cat): throws 'NAO_CABE' se !canPlace; devolve { state, usedGap: boolean }
 ```
 
@@ -76,13 +76,13 @@ place(state, itemId, cat): throws 'NAO_CABE' se !canPlace; devolve { state, used
 
 R1 = posição na sequência da rodada 1 (vazio = não aparece). Vida/Diversão são valores base.
 
-**Pedras (14, vão 6):** `oracao` Oração ❤20 ⚡0 R1=19 · `missa` Missa ❤20 ⚡0 R1=18 · `familia` Família ❤15 ⚡10 R1=17 · `estudos` Estudos/Trabalho ❤15 ⚡0 R1=15 · `sono` Sono ❤15 ⚡0 R1=16
+**Pedras (tamanho 20, vão 8):** `oracao` Oração ❤20 ⚡0 R1=19 · `missa` Missa ❤20 ⚡0 R1=18 · `familia` Família ❤15 ⚡10 R1=17 · `estudos` Estudos/Trabalho ❤15 ⚡0 R1=5 · `sono` Sono ❤15 ⚡0 R1=13
 
-**Cascalho (5):** `amigos` Amigos 5/15 R1=9 · `role` Rolê 0/15 R1=10 · `futebol` Futebol/esporte 8/12 R1=11 · `namoro` Encontro com namorado(a) 5/15 R1=12 · `violao` Tocar violão/hobby 5/12 R1=13 · `praia` Praia/passeio 5/12 R1=14 · `academia` Academia 10/5 · `livro` Ler um livro 8/5 · `ejc` Reunião do EJC 10/10 · `pastoral` Pastoral/voluntariado 12/5 · `avos` Visitar os avós 12/5 · `curso` Curso extra 10/0 · `cozinhar` Cozinhar algo 5/8 · `quarto` Arrumar o quarto 6/0
+**Cascalho (5):** `amigos` Amigos 5/15 R1=10 · `role` Rolê 0/15 R1=11 · `futebol` Futebol/esporte 8/12 R1=12 · `namoro` Encontro com namorado(a) 5/15 R1=14 · `violao` Tocar violão/hobby 5/12 R1=15 · `praia` Praia/passeio 5/12 R1=16 · `academia` Academia 10/5 · `livro` Ler um livro 8/5 · `ejc` Reunião do EJC 10/10 · `pastoral` Pastoral/voluntariado 12/5 · `avos` Visitar os avós 12/5 · `curso` Curso extra 10/0 · `cozinhar` Cozinhar algo 5/8 · `quarto` Arrumar o quarto 6/0
 
 **Areia (2):** `reels` Reels/TikTok 0/10 R1=1 · `serie` Série 0/10 R1=2 · `feed` Rolar o feed 0/8 R1=3 · `videogame` Videogame 0/10 R1=4 · `fofoca` Fofoca no grupo −5/8 R1=5 · `youtube` YouTube 0/8 R1=6 · `stories` Stories dos outros −3/5 R1=7 · `madrugada` Celular de madrugada −10/8 R1=8 · `joguinho` Joguinho no celular 0/6 · `meme` Meme no grupo 0/6 · `figurinha` Figurinha no zap 0/5 · `comentarios` Discutir nos comentários −5/3 · `compras` Compras online à toa −2/6 · `maratona` Maratonar série −3/12 · `cochilo` Cochilo extra 2/4
 
-Sequência da rodada 1: posições 1–8 areias, 9–14 cascalhos, 15–19 pedras. Emojis ficam no arquivo de catálogo (escolha livre, um por item).
+**Sequência da rodada 1 (19 itens):** 1–4 areias · 5 **Estudos/Trabalho** (pedra no meio das areias) · 6–9 areias · 10–12 cascalhos · 13 **Sono** (pedra no meio dos cascalhos) · 14–16 cascalhos · 17 Família · 18 Missa · 19 Oração (as 3 últimas, Oração por último). Os ícones (Material Symbols) ficam no arquivo de catálogo.
 
 ## Pontuação (função pura sobre a mesma lista ordenada)
 
@@ -134,7 +134,7 @@ O tutorial **não** é fase da sala: ao entrar em ROUND_1, cada jogador passa po
 
 **Rodada 1:** sequência fixa de 19 itens (igual para todos); 6 s por item; ações Pegar / Deixar passar; tempo esgotado = deixar passar; item que não cabe → Pegar desabilitado; **nada sai do pote**. `round1/action` é idempotente por `index`.
 
-**Rodada 2:** os 34 itens em abas Pedras / Cascalho / Areia; cascalho e areia **bloqueados até as 5 pedras**; pedras em qualquer ordem e **sem retirada**; cascalho/areia podem ser retirados e trocados; timer padrão 180 s, `+60 s` pelo líder; "Fechar minha semana" (confirma) encerra antes. `place`/`remove` ignoram item que já está no estado pedido.
+**Rodada 2:** os 34 itens em abas Pedras / Cascalho / Areia; **tudo liberado desde o início** (cascalho, areia e pedras, em qualquer ordem); a pedra exige 20 livres, cascalho/areia usam os vãos primeiro; **as pedras não saem**, mas cascalho e areia podem ser pegos e retirados à vontade até fechar a semana; timer padrão 180 s, `+60 s` pelo líder; "Fechar minha semana" (confirma) encerra antes. `place`/`remove` ignoram item que já está no estado pedido.
 
 ## Telas
 
@@ -148,13 +148,13 @@ Quatro visões. O líder vê sempre, no topo, fase, código da sala e barra fixa
 Controles do líder por fase: LOBBY = Iniciar, Convidar, Abrir telão, Remover, Cancelar · ROUND_1 = Pausar/Retomar, Encerrar rodada 1, Remover, Cancelar · RESULT_1 = Mostrar parábola, Cancelar · PARABLE = Iniciar rodada 2, Cancelar · ROUND_2 = Pausar/Retomar, +1 minuto, Encerrar rodada 2, Remover, Cancelar · FINAL = Encerrar jogo. Ações destrutivas (encerrar com gente jogando, cancelar, remover) pedem confirmação.
 
 ### Jogador, por fase
-- **LOBBY:** "Aguardando o líder iniciar…" + pote vazio desenhado.
+- **LOBBY:** "Aguardando o líder começar" e a **lista ao vivo de quem já entrou** (só nomes, em ordem de chegada, a si mesmo marcado) — **sem pote** (o pote só aparece dentro do jogo).
 - **ROUND_1 tutorial (3 telas de passar):** textos abaixo; botão final "Entendi, começar". Não explica o vão nem a Vida.
 - **ROUND_1 jogando:** topo = ⚡ e "Item X de 19"; centro = card (emoji, nome, tamanho, "+N diversão" em destaque — ❤ escondida) + barra de 6 s; botões Pegar / Deixar passar (cinza com "Não cabe: precisa de N, você tem M" + card treme quando não cabe); pote enchendo com "Espaço livre: N"; faixa "Ficou de fora" (pedra que não coube cai com destaque). Terminou: "Sua semana acabou. Aguardando os outros… (X/N terminaram)", ainda sem revelar ❤.
 - **RESULT_1:** com 5 pedras → "🕊️ Parabéns! Você teve uma semana com Deus. Todas as pedras estão no seu pote." Sem → "Sua semana ficou cheia… mas não coube: [pedras]." Mostra ⚡ e revela ❤ (com −20 por pedra em vermelho).
 - **PARABLE:** texto + perguntas (fonte grande no telão).
-- **ROUND_2:** topo ⚡ ❤ timer; "Pedras: N/5"; abas (Cascalho/Areia com "🔒 Primeiro as pedras" até 5/5); depois "Espaço para escolhas: N"; tocar item fora do pote coloca, tocar cascalho/areia dentro retira; "Encaixou nos vãos ✨" quando `usedGap`; "Pote cheio. Para colocar algo, tire outra coisa."; combos com animação; "Fechar minha semana" (confirma) → espera.
-- **FINAL:** classificação (emoji, nome, texto), ⚡ e ❤ finais, combos, "Ficou de fora da sua semana", texto final e campo "Qual pedra você vai colocar primeiro nesta semana?" (placeholder "Ex.: 10 minutos de oração antes de pegar o celular", máx. 140) com Salvar.
+- **ROUND_2:** topo Diversão, Vida e timer; "Pedras: N/5 · Espaço no pote: N"; as 3 abas sempre habilitadas; **resposta imediata ao toque** (o item entra/sai do pote na hora, o placar acompanha, e o item mostra um indicador de "salvando" até o servidor confirmar; ações vão ao servidor em fila, na ordem; se uma falhar, ela some e o motivo aparece); tocar item fora do pote coloca, tocar cascalho/areia dentro retira; "Encaixou nos vãos" quando `usedGap`; "Pote cheio. Para colocar algo, tire outra coisa."; combos com animação; "Fechar minha semana" (confirma) → espera.
+- **FINAL:** classificação (ícone, nome, texto), Diversão e Vida finais, combos, "Ficou de fora da sua semana" e o texto final. (O campo de compromisso "Qual pedra você vai colocar primeiro" foi **removido** a pedido de Lucas em 2026-10-03.)
 - **ENDED/CANCELLED:** "Obrigado por jogar!" + voltar ao Oratio; CANCELLED: "A sala foi encerrada pelo líder."
 - **Pausa (qualquer fase):** overlay "⏸️ Pausado pelo líder" em todas as telas; timers congelados, botões desabilitados.
 
@@ -202,7 +202,7 @@ Todas as rotas: `JwtAuthGuard`; `userId` sempre de `req.user.userId`, nunca do b
 | POST | `/oratio/pote/rooms/:code/round2/place` | jogador | `{ itemId }` |
 | POST | `/oratio/pote/rooms/:code/round2/remove` | jogador | `{ itemId }` |
 | POST | `/oratio/pote/rooms/:code/round2/finish` | jogador | fecha a semana |
-| POST | `/oratio/pote/rooms/:code/commitment` | jogador | `{ text }` (≤ 140), upsert por sala+usuário |
+| POST | `/oratio/pote/rooms/:code/commitment` | jogador | `{ text }` (≤ 140), upsert por sala+usuário — **sem uso na tela** desde 2026-10-03 (campo removido a pedido de Lucas); endpoint e tabela ficam, inertes |
 
 O `GET` devolve **a visão de quem chama**: jogador = próprio pote/placar (❤ omitida na rodada 1 até RESULT_1); líder/telão = todos os jogadores com status e estatísticas agregadas (calculadas no servidor). Nunca devolve e-mail de ninguém (só `displayName`, que é o primeiro nome do usuário). Erros: 401 sem token · 403 sem convite / não é líder / não é admin · 404 sala inexistente ou código que não tem 4 dígitos · 409 pausa, fase errada ou ação fora de ordem · 400 payload inválido.
 
@@ -220,13 +220,13 @@ Cada ação de jogador: valida fase, pausa e regras com as funções puras → p
 ## Critérios de aceite (BDD)
 
 **Funções puras (Jest):**
-- [ ] **Dado** 5 pedras colocadas primeiro, **então** `free = 30`, `gaps = 30` e restam exatamente 60 para escolhas.
+- [ ] **Dado** 5 pedras colocadas primeiro, **então** `free = 0`, `gaps = 40` e restam exatamente 40 para escolhas.
 - [ ] **Dado** a sequência da rodada 1 pegando tudo que cabe, **então** entram 3 pedras e 2 ficam de fora.
 - [ ] Areia usa vão parcialmente (`gaps = 1`, areia de tamanho 2 → consome 1 de vão e 1 de livre) e `usedGap` reflete isso.
 - [ ] "Scroll cansa": 4ª areia 100%, 5ª–8ª 50% (arredondado para baixo), 9ª+ 0; ❤ negativa não é reduzida.
 - [ ] Cada combo ativa e desativa conforme a lista muda; `deus_primeiro` exige `oracao` como 1º item.
 - [ ] Penalidade −20 ❤ por pedra de fora (só rodada 1); as 4 classificações nos limites 60/150 (59/60, 149/150).
-- [ ] Sequência da rodada 1 = exatamente a da tabela (19 itens, 8/6/5).
+- [ ] Sequência da rodada 1 = exatamente a descrita acima (19 itens: 8 areias, 6 cascalhos, 5 pedras — 2 no meio, 3 no final).
 
 **Acesso e convite:**
 - [ ] **Dado** usuário não-admin, **quando** `POST /oratio/pote/rooms`, **então** 403.
@@ -242,7 +242,7 @@ Cada ação de jogador: valida fase, pausa e regras com as funções puras → p
 - [ ] Rodada 2: `place` de cascalho/areia com < 5 pedras → 409; pedra não pode ser removida; remoção recalcula placar e combos.
 - [ ] Pausa: qualquer ação de jogador → 409 com mensagem; retomar recalcula `round2EndsAt` a partir do restante.
 - [ ] Rodada 2 com `now > round2EndsAt`: o próximo `GET` já devolve FINAL.
-- [ ] Compromisso > 140 caracteres → 400; salvo duas vezes → atualiza, não duplica.
+- [x] ~~Compromisso~~: o campo "Qual pedra você vai colocar primeiro" saiu da tela final; o endpoint segue validando (≤ 140 → 400, upsert) mas ninguém o chama.
 - [ ] Líder que recarrega volta ao estado atual; jogador que reconecta volta de onde parou (rodada 1: o item atual reinicia com 6 s cheios).
 
 **Manual (Lucas, na tela):**

@@ -6,12 +6,12 @@ export type Category = 'PEDRA' | 'CASCALHO' | 'AREIA';
 
 export const CAPACITY = 100;
 export const SIZE: Record<Category, number> = {
-  PEDRA: 14,
+  PEDRA: 20,
   CASCALHO: 5,
   AREIA: 2,
 };
 export const GAP: Record<Category, number> = {
-  PEDRA: 6,
+  PEDRA: 8,
   CASCALHO: 0,
   AREIA: 0,
 };
@@ -35,16 +35,16 @@ export const ITEMS: readonly PoteItem[] = [
   { id: 'oracao', name: 'Oração', icon: 'volunteer_activism', category: 'PEDRA', life: 20, fun: 0, r1: 19 },
   { id: 'missa', name: 'Missa', icon: 'church', category: 'PEDRA', life: 20, fun: 0, r1: 18 },
   { id: 'familia', name: 'Família', icon: 'family_restroom', category: 'PEDRA', life: 15, fun: 10, r1: 17 },
-  { id: 'estudos', name: 'Estudos/Trabalho', icon: 'school', category: 'PEDRA', life: 15, fun: 0, r1: 15 },
-  { id: 'sono', name: 'Sono', icon: 'bedtime', category: 'PEDRA', life: 15, fun: 0, r1: 16 },
+  { id: 'estudos', name: 'Estudos/Trabalho', icon: 'school', category: 'PEDRA', life: 15, fun: 0, r1: 5 },
+  { id: 'sono', name: 'Sono', icon: 'bedtime', category: 'PEDRA', life: 15, fun: 0, r1: 13 },
 
   // Cascalho
-  { id: 'amigos', name: 'Amigos', icon: 'group', category: 'CASCALHO', life: 5, fun: 15, r1: 9 },
-  { id: 'role', name: 'Rolê', icon: 'nightlife', category: 'CASCALHO', life: 0, fun: 15, r1: 10 },
-  { id: 'futebol', name: 'Futebol/esporte', icon: 'sports_soccer', category: 'CASCALHO', life: 8, fun: 12, r1: 11 },
-  { id: 'namoro', name: 'Encontro com namorado(a)', icon: 'diversity_1', category: 'CASCALHO', life: 5, fun: 15, r1: 12 },
-  { id: 'violao', name: 'Tocar violão/hobby', icon: 'music_note', category: 'CASCALHO', life: 5, fun: 12, r1: 13 },
-  { id: 'praia', name: 'Praia/passeio', icon: 'beach_access', category: 'CASCALHO', life: 5, fun: 12, r1: 14 },
+  { id: 'amigos', name: 'Amigos', icon: 'group', category: 'CASCALHO', life: 5, fun: 15, r1: 10 },
+  { id: 'role', name: 'Rolê', icon: 'nightlife', category: 'CASCALHO', life: 0, fun: 15, r1: 11 },
+  { id: 'futebol', name: 'Futebol/esporte', icon: 'sports_soccer', category: 'CASCALHO', life: 8, fun: 12, r1: 12 },
+  { id: 'namoro', name: 'Encontro com namorado(a)', icon: 'diversity_1', category: 'CASCALHO', life: 5, fun: 15, r1: 14 },
+  { id: 'violao', name: 'Tocar violão/hobby', icon: 'music_note', category: 'CASCALHO', life: 5, fun: 12, r1: 15 },
+  { id: 'praia', name: 'Praia/passeio', icon: 'beach_access', category: 'CASCALHO', life: 5, fun: 12, r1: 16 },
   { id: 'academia', name: 'Academia', icon: 'fitness_center', category: 'CASCALHO', life: 10, fun: 5 },
   { id: 'livro', name: 'Ler um livro', icon: 'menu_book', category: 'CASCALHO', life: 8, fun: 5 },
   { id: 'ejc', name: 'Reunião do EJC', icon: 'local_fire_department', category: 'CASCALHO', life: 10, fun: 10 },
@@ -59,10 +59,10 @@ export const ITEMS: readonly PoteItem[] = [
   { id: 'serie', name: 'Série', icon: 'tv', category: 'AREIA', life: 0, fun: 10, r1: 2 },
   { id: 'feed', name: 'Rolar o feed', icon: 'swipe_vertical', category: 'AREIA', life: 0, fun: 8, r1: 3 },
   { id: 'videogame', name: 'Videogame', icon: 'sports_esports', category: 'AREIA', life: 0, fun: 10, r1: 4 },
-  { id: 'fofoca', name: 'Fofoca no grupo', icon: 'forum', category: 'AREIA', life: -5, fun: 8, r1: 5 },
-  { id: 'youtube', name: 'YouTube', icon: 'smart_display', category: 'AREIA', life: 0, fun: 8, r1: 6 },
-  { id: 'stories', name: 'Stories dos outros', icon: 'visibility', category: 'AREIA', life: -3, fun: 5, r1: 7 },
-  { id: 'madrugada', name: 'Celular de madrugada', icon: 'dark_mode', category: 'AREIA', life: -10, fun: 8, r1: 8 },
+  { id: 'fofoca', name: 'Fofoca no grupo', icon: 'forum', category: 'AREIA', life: -5, fun: 8, r1: 6 },
+  { id: 'youtube', name: 'YouTube', icon: 'smart_display', category: 'AREIA', life: 0, fun: 8, r1: 7 },
+  { id: 'stories', name: 'Stories dos outros', icon: 'visibility', category: 'AREIA', life: -3, fun: 5, r1: 8 },
+  { id: 'madrugada', name: 'Celular de madrugada', icon: 'dark_mode', category: 'AREIA', life: -10, fun: 8, r1: 9 },
   { id: 'joguinho', name: 'Joguinho no celular', icon: 'videogame_asset', category: 'AREIA', life: 0, fun: 6 },
   { id: 'meme', name: 'Meme no grupo', icon: 'mood', category: 'AREIA', life: 0, fun: 6 },
   { id: 'figurinha', name: 'Figurinha no zap', icon: 'sticky_note_2', category: 'AREIA', life: 0, fun: 5 },
@@ -80,7 +80,11 @@ export const ROCK_IDS: readonly string[] = ITEMS.filter(
   (i) => i.category === 'PEDRA',
 ).map((i) => i.id);
 
-/** Os 19 itens da rodada 1, na ordem fixa: 8 areias → 6 cascalhos → 5 pedras. */
+/**
+ * Os 19 itens da rodada 1, na ordem fixa: areias e cascalhos com 2 pedras no meio
+ * (Estudos/Trabalho entre as areias, Sono entre os cascalhos) e 3 pedras no final
+ * (Família, Missa e, por último, Oração).
+ */
 export const ROUND1_SEQUENCE: readonly PoteItem[] = ITEMS.filter(
   (i) => i.r1 !== undefined,
 ).sort((a, b) => (a.r1 as number) - (b.r1 as number));

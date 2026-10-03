@@ -251,6 +251,49 @@ describe('PoteService — acesso e convite', () => {
     }
   });
 
+  it('sala de espera: o jogador vê quem já entrou (só nomes), em ordem de chegada, e a si mesmo marcado', async () => {
+    const s = setup();
+    const code = await newRoom(s);
+    await s.service.join(code, ANA);
+    await s.service.join(code, BIA);
+    // Bia chegou antes (os dois joins caem no mesmo milissegundo, então fixa a hora)
+    s.db.players.find((p) => p.userId === BIA)!.joinedAt = new Date(Date.now() - 5000);
+
+    const asAna: any = await s.service.getState(code, ANA);
+    expect(asAna.lobby.players).toEqual([
+      { displayName: 'Bia', isMe: false },
+      { displayName: 'Ana', isMe: true },
+    ]);
+    const text = JSON.stringify(asAna.lobby);
+    expect(text).not.toContain('@');
+    expect(text).not.toContain('user-');
+  });
+
+  it('sala de espera: convidado que ainda não entrou e removido não aparecem; chegada nova muda a versão', async () => {
+    const s = setup();
+    const code = await newRoom(s);
+    await s.service.join(code, ANA);
+    const before: any = await s.service.getState(code, ANA);
+    expect(before.lobby.players.map((p: any) => p.displayName)).toEqual(['Ana']); // Bia só foi convidada
+
+    await s.service.join(code, BIA);
+    const after: any = await s.service.getState(code, ANA, before.version);
+    expect(after.changed).toBe(true);
+    expect(after.lobby.players.map((p: any) => p.displayName)).toEqual(['Ana', 'Bia']);
+
+    await s.service.removePlayer(code, ADMIN, BIA);
+    const removed: any = await s.service.getState(code, ANA);
+    expect(removed.lobby.players.map((p: any) => p.displayName)).toEqual(['Ana']);
+  });
+
+  it('a lista da sala de espera some depois do LOBBY (não pesa o jogo)', async () => {
+    const s = setup();
+    const code = await newRoom(s);
+    await s.service.join(code, ANA);
+    await s.service.changePhase(code, ADMIN, 'ROUND_1');
+    expect(((await s.service.getState(code, ANA)) as any).lobby).toBeUndefined();
+  });
+
   it('join é idempotente e marca joinedAt', async () => {
     const s = setup();
     const code = await newRoom(s);
@@ -527,16 +570,39 @@ describe('PoteService — rodada 2', () => {
     expect(state.me.round2.status).toBe('PLAYING');
   });
 
-  it('cascalho e areia ficam bloqueados até as 5 pedras', async () => {
+  it('cascalho e areia estão liberados desde o início; quem enche antes pode perder a 5ª pedra e recupera retirando', async () => {
     const s = setup();
     const code = await toRound2(s);
-    await expect(s.service.round2Place(code, ANA, 'amigos')).rejects.toThrow('PEDRAS_PRIMEIRO');
-    await expect(s.service.round2Place(code, ANA, 'reels')).rejects.toThrow('PEDRAS_PRIMEIRO');
-    for (const id of ROCK_IDS) await s.service.round2Place(code, ANA, id);
-    const state: any = await s.service.getState(code, ANA);
-    expect(state.me.round2.unlocked).toBe(true);
-    expect(state.me.round2.spaceLeft).toBe(60);
     await expect(s.service.round2Place(code, ANA, 'amigos')).resolves.toBeDefined();
+    await expect(s.service.round2Place(code, ANA, 'reels')).resolves.toBeDefined(); // 7 usados
+
+    for (const id of ROCK_IDS.slice(0, 4)) await s.service.round2Place(code, ANA, id);
+    // sobram 13 livres: a 5ª pedra (20) não cabe
+    await expect(s.service.round2Place(code, ANA, ROCK_IDS[4])).rejects.toThrow('NAO_CABE');
+
+    // as pedras não saem, mas cascalho/areia sim: retirar libera o espaço
+    await s.service.round2Remove(code, ANA, 'amigos');
+    await s.service.round2Remove(code, ANA, 'reels');
+    await expect(s.service.round2Place(code, ANA, ROCK_IDS[4])).resolves.toBeDefined();
+
+    const state: any = await s.service.getState(code, ANA);
+    expect(state.me.round2.rocksIn).toBe(5);
+    expect(state.me.round2).not.toHaveProperty('unlocked');
+  });
+
+  it('com o pote cheio de cascalho e areia a pedra não cabe (20 livres); retirar libera', async () => {
+    const s = setup();
+    const code = await toRound2(s);
+    const cascalhos = ['amigos', 'role', 'futebol', 'namoro', 'violao', 'praia', 'academia', 'livro', 'ejc', 'pastoral', 'avos', 'curso', 'cozinhar', 'quarto'];
+    for (const id of cascalhos) await s.service.round2Place(code, ANA, id); // 70
+    for (const id of ['reels', 'serie', 'feed', 'videogame', 'fofoca', 'youtube', 'stories', 'madrugada']) {
+      await s.service.round2Place(code, ANA, id); // +16 = 86 usados, 14 livres
+    }
+    await expect(s.service.round2Place(code, ANA, 'oracao')).rejects.toThrow('NAO_CABE');
+
+    await s.service.round2Remove(code, ANA, 'quarto');
+    await s.service.round2Remove(code, ANA, 'cozinhar'); // 76 usados, 24 livres
+    await expect(s.service.round2Place(code, ANA, 'oracao')).resolves.toBeDefined();
   });
 
   it('place é idempotente e pedra não pode ser retirada; cascalho/areia podem', async () => {
@@ -559,8 +625,8 @@ describe('PoteService — rodada 2', () => {
     const s = setup();
     const code = await toRound2(s);
     for (const id of ROCK_IDS) await s.service.round2Place(code, ANA, id);
-    // 12 cascalhos = 60 exatos
-    const cascalhos = ['amigos', 'role', 'futebol', 'namoro', 'violao', 'praia', 'academia', 'livro', 'ejc', 'pastoral', 'avos', 'curso'];
+    // 8 cascalhos = 40 exatos (o espaço para escolhas com as 5 pedras)
+    const cascalhos = ['amigos', 'role', 'futebol', 'namoro', 'violao', 'praia', 'academia', 'livro'];
     for (const id of cascalhos) await s.service.round2Place(code, ANA, id);
     await expect(s.service.round2Place(code, ANA, 'reels')).rejects.toThrow('NAO_CABE');
 
@@ -568,10 +634,10 @@ describe('PoteService — rodada 2', () => {
     expect(full.me.round2.spaceLeft).toBe(0);
     const lifeFull = full.me.round2.life;
 
-    await s.service.round2Remove(code, ANA, 'curso'); // ❤10
+    await s.service.round2Remove(code, ANA, 'livro'); // Vida 8
     const after: any = await s.service.getState(code, ANA);
     expect(after.me.round2.spaceLeft).toBe(5);
-    expect(after.me.round2.life).toBe(lifeFull - 10);
+    expect(after.me.round2.life).toBe(lifeFull - 8);
     await expect(s.service.round2Place(code, ANA, 'reels')).resolves.toBeDefined();
   });
 
