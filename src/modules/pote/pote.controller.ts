@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { AdminGuard } from 'src/modules/auth/admin.guard';
 import { JwtAuthGuard } from 'src/modules/auth/jwt-auth.guard';
-import { CommitmentDto, ItemDto, Round1ActionDto } from './dto/actions.dto';
+import { CommitmentDto, ItemDto, Round1ActionDto, Round2SyncDto } from './dto/actions.dto';
 import { CreateInvitesDto } from './dto/create-invites.dto';
 import { PauseDto, PhaseDto } from './dto/phase.dto';
 import { PoteService } from './pote.service';
@@ -126,6 +126,11 @@ export class PoteController {
   @Post('rooms/:code/round2/remove')
   round2Remove(@Req() req: any, @Param('code') code: string, @Body() body: ItemDto) {
     return this.service.round2Remove(code4(code), req.user.userId, body.itemId);
+  }
+
+  @Post('rooms/:code/round2/sync')
+  round2Sync(@Req() req: any, @Param('code') code: string, @Body() body: Round2SyncDto) {
+    return this.service.round2Sync(code4(code), req.user.userId, body.placed);
   }
 
   @Post('rooms/:code/round2/finish')

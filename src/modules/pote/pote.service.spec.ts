@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PoteService } from './pote.service';
-import { ROCK_IDS, ROUND1_SEQUENCE } from './domain/catalog';
+import { ITEM_BY_ID, ROCK_IDS } from './domain/catalog';
+import { buildRound1Order } from './domain/order';
+import { canPlace, deriveJar } from './domain/rules';
+import { computeScore } from './domain/score';
 
 // ── Prisma em memória: só o que o PoteService usa, com semântica de where/update
 //    suficiente para exercitar versão, trava otimista e transições (sem banco). ──
@@ -51,11 +54,16 @@ function makeFakePrisma() {
       findUnique: jest.fn(async ({ where }: Row) => db.users.find((u) => u.id === where.id) ?? null),
     },
     poteRoom: {
-      findFirst: jest.fn(async ({ where }: Row) =>
-        [...db.rooms]
+      findFirst: jest.fn(async ({ where, include }: Row) => {
+        const room = [...db.rooms]
           .filter((r) => matches(r, where))
-          .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null,
-      ),
+          .sort((a, b) => b.createdAt - a.createdAt)[0];
+        if (!room) return null;
+        // cópias rasas dos jogadores (como o Prisma): a mutação do banco não vaza para o que já foi lido
+        return include?.players
+          ? { ...room, players: db.players.filter((p) => p.roomId === room.id).map((p) => ({ ...p })) }
+          : { ...room };
+      }),
       create: jest.fn(async ({ data }: Row) => {
         const row = {
           id: id('room'), phase: 'LOBBY', isPaused: false, round2EndsAt: null,
@@ -161,14 +169,23 @@ async function startRound1(s: ReturnType<typeof setup>) {
   return code;
 }
 
+/** A ordem sorteada deste jogador (a mesma que o servidor calcula: sala + usuário). */
+function orderOf(s: ReturnType<typeof setup>, code: string, userId: string): string[] {
+  const room = s.db.rooms.find((r) => r.code === code)!;
+  return buildRound1Order(`${room.id}:${userId}`);
+}
+
 async function playRound1(s: ReturnType<typeof setup>, code: string, userId: string, takeAll = true) {
   await s.service.tutorialDone(code, userId);
-  for (let i = 0; i < ROUND1_SEQUENCE.length; i++) {
-    try {
-      await s.service.round1Action(code, userId, i, takeAll ? 'TAKE' : 'PASS');
-    } catch (e) {
-      if (e instanceof ConflictException) await s.service.round1Action(code, userId, i, 'PASS');
-      else throw e;
+  const order = orderOf(s, code, userId);
+  let jar = deriveJar([]);
+  for (let i = 0; i < order.length; i++) {
+    const item = ITEM_BY_ID[order[i]];
+    if (takeAll && canPlace(jar, item.category)) {
+      await s.service.round1Action(code, userId, i, 'TAKE');
+      jar = deriveJar([...jar.placed, item.id]);
+    } else {
+      await s.service.round1Action(code, userId, i, 'PASS');
     }
   }
 }
@@ -425,10 +442,11 @@ describe('PoteService — rodada 1', () => {
     const code = await startRound1(s);
     await s.service.tutorialDone(code, ANA);
 
+    const order = orderOf(s, code, ANA);
     await s.service.round1Action(code, ANA, 0, 'TAKE');
     await s.service.round1Action(code, ANA, 0, 'TAKE'); // duplo toque
     const ana = s.db.players.find((p) => p.userId === ANA)!;
-    expect(ana.round1Placed).toEqual(['reels']);
+    expect(ana.round1Placed).toEqual([order[0]]);
     expect(ana.round1Index).toBe(1);
 
     await expect(s.service.round1Action(code, ANA, 5, 'PASS')).rejects.toBeInstanceOf(
@@ -446,18 +464,30 @@ describe('PoteService — rodada 1', () => {
     expect(ana.round1Index).toBe(1);
   });
 
-  it('pegando tudo: termina com 3 pedras, 2 de fora, e TAKE do que não cabe → 409 NAO_CABE', async () => {
+  it('pegando tudo: o que não cabe → 409 NAO_CABE (e passa); termina com 2 ou 3 pedras, nunca as 5', async () => {
     const s = setup();
     const code = await startRound1(s);
     await s.service.tutorialDone(code, ANA);
-    for (let i = 0; i < 17; i++) await s.service.round1Action(code, ANA, i, 'TAKE');
-    await expect(s.service.round1Action(code, ANA, 17, 'TAKE')).rejects.toThrow('NAO_CABE');
-    await s.service.round1Action(code, ANA, 17, 'PASS');
-    await s.service.round1Action(code, ANA, 18, 'PASS');
-
+    const order = orderOf(s, code, ANA);
+    let jar = deriveJar([]);
+    let refused = 0;
+    for (let i = 0; i < order.length; i++) {
+      const item = ITEM_BY_ID[order[i]];
+      if (canPlace(jar, item.category)) {
+        await s.service.round1Action(code, ANA, i, 'TAKE');
+        jar = deriveJar([...jar.placed, item.id]);
+      } else {
+        await expect(s.service.round1Action(code, ANA, i, 'TAKE')).rejects.toThrow('NAO_CABE');
+        await s.service.round1Action(code, ANA, i, 'PASS');
+        refused += 1;
+      }
+    }
     const ana = s.db.players.find((p) => p.userId === ANA)!;
     expect(ana.statusRound1).toBe('FINISHED');
-    expect(ana.round1Placed.filter((id: string) => ROCK_IDS.includes(id))).toHaveLength(3);
+    const stones = ana.round1Placed.filter((id: string) => ROCK_IDS.includes(id)).length;
+    expect(stones).toBeGreaterThanOrEqual(2);
+    expect(stones).toBeLessThanOrEqual(3);
+    expect(refused).toBe(5 - stones);
   });
 
   it('a Vida da rodada 1 fica oculta no jogo e é revelada no RESULT_1', async () => {
@@ -470,21 +500,24 @@ describe('PoteService — rodada 1', () => {
 
     await s.service.changePhase(code, ADMIN, 'RESULT_1');
     const after: any = await s.service.getState(code, ANA);
-    expect(after.me.round1.life).toBe(15);
-    expect(after.me.round1.penalty).toBe(40);
+    const ana = s.db.players.find((p) => p.userId === ANA)!;
+    const score = computeScore(ana.round1Placed, 1);
+    expect(after.me.round1.life).toBe(score.life);
+    expect(after.me.round1.penalty).toBe(20 * score.rocksMissing.length);
   });
 
   it('encerrar a rodada 1 com gente jogando conta os itens restantes como PASS', async () => {
     const s = setup();
     const code = await startRound1(s);
     await s.service.tutorialDone(code, ANA);
+    const order = orderOf(s, code, ANA);
     await s.service.round1Action(code, ANA, 0, 'TAKE');
     await s.service.changePhase(code, ADMIN, 'RESULT_1');
 
     const ana = s.db.players.find((p) => p.userId === ANA)!;
     const bia = s.db.players.find((p) => p.userId === BIA)!;
     expect(ana).toMatchObject({ statusRound1: 'FINISHED', round1Index: 19 });
-    expect(ana.round1Placed).toEqual(['reels']);
+    expect(ana.round1Placed).toEqual([order[0]]);
     expect(bia.statusRound1).toBe('FINISHED'); // estava no tutorial: tudo PASS
     expect(bia.round1Placed).toEqual([]);
   });
@@ -496,7 +529,232 @@ describe('PoteService — rodada 1', () => {
     expect(before.me.round1.currentItemId).toBeNull();
     await s.service.tutorialDone(code, ANA);
     const after: any = await s.service.getState(code, ANA);
-    expect(after.me.round1.currentItemId).toBe('reels');
+    expect(after.me.round1.currentItemId).toBe(orderOf(s, code, ANA)[0]);
+  });
+});
+
+describe('PoteService — ordem sorteada por jogador', () => {
+  it('cada jogador recebe a SUA ordem (diferente da dos outros) e ela é a mesma ao reconectar', async () => {
+    const s = setup();
+    const code = await startRound1(s);
+    await s.service.tutorialDone(code, ANA);
+    await s.service.tutorialDone(code, BIA);
+
+    const ana: any = await s.service.getState(code, ANA);
+    const bia: any = await s.service.getState(code, BIA);
+    expect(ana.me.round1.currentItemId).toBe(orderOf(s, code, ANA)[0]);
+    expect(bia.me.round1.currentItemId).toBe(orderOf(s, code, BIA)[0]);
+    expect(orderOf(s, code, ANA)).not.toEqual(orderOf(s, code, BIA));
+
+    const again: any = await s.service.getState(code, ANA);
+    expect(again.me.round1.currentItemId).toBe(ana.me.round1.currentItemId);
+  });
+
+  it('o jogador só vê o que já passou (seen); o que vem por aí continua surpresa', async () => {
+    const s = setup();
+    const code = await startRound1(s);
+    await s.service.tutorialDone(code, ANA);
+    const order = orderOf(s, code, ANA);
+    await s.service.round1Action(code, ANA, 0, 'PASS');
+    const state: any = await s.service.round1Action(code, ANA, 1, 'PASS');
+
+    expect(state.me.round1.seen).toEqual(order.slice(0, 2));
+    expect(state.me.round1.currentItemId).toBe(order[2]);
+    const future = order.slice(3).find((id) => ITEM_BY_ID[id].category !== 'PEDRA')!;
+    expect(JSON.stringify(state.me)).not.toContain(future); // um item futuro não vaza
+  });
+
+  it('a resposta da ação já traz o próximo item (sem precisar de outro GET)', async () => {
+    const s = setup();
+    const code = await startRound1(s);
+    await s.service.tutorialDone(code, ANA);
+    const order = orderOf(s, code, ANA);
+    const state: any = await s.service.round1Action(code, ANA, 0, 'PASS');
+    expect(state.changed).toBe(true);
+    expect(state.me.round1.index).toBe(1);
+    expect(state.me.round1.currentItemId).toBe(order[1]);
+    expect(state.version).toBeGreaterThan(0);
+  });
+});
+
+describe('PoteService — poucas idas ao banco (velocidade)', () => {
+  async function inRound2(s: ReturnType<typeof setup>) {
+    const code = await startRound1(s);
+    await s.service.changePhase(code, ADMIN, 'RESULT_1');
+    await s.service.changePhase(code, ADMIN, 'PARABLE');
+    await s.service.changePhase(code, ADMIN, 'ROUND_2');
+    return code;
+  }
+  const clear = (s: ReturnType<typeof setup>) => {
+    for (const table of Object.values(s.prisma) as Record<string, jest.Mock>[]) {
+      for (const fn of Object.values(table)) if (jest.isMockFunction(fn)) fn.mockClear();
+    }
+  };
+
+  it('um poll sem novidade custa UMA consulta (sala + jogadores juntos)', async () => {
+    const s = setup();
+    const code = await startRound1(s);
+    const first: any = await s.service.getState(code, ANA);
+    clear(s);
+
+    const res: any = await s.service.getState(code, ANA, first.version);
+    expect(res.changed).toBe(false);
+    expect(s.prisma.poteRoom.findFirst).toHaveBeenCalledTimes(1);
+    expect(s.prisma.potePlayer.findMany).not.toHaveBeenCalled();
+    expect(s.prisma.potePlayer.findUnique).not.toHaveBeenCalled();
+    expect(s.prisma.poteCommitment.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('um poll COM novidade também é uma consulta só', async () => {
+    const s = setup();
+    const code = await startRound1(s);
+    clear(s);
+    await s.service.getState(code, ANA);
+    expect(s.prisma.poteRoom.findFirst).toHaveBeenCalledTimes(1);
+    expect(s.prisma.potePlayer.findMany).not.toHaveBeenCalled();
+  });
+
+  it('uma ação da rodada 2 = 1 leitura + 2 escritas (paralelas), nada de reler o estado', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    clear(s);
+
+    const state: any = await s.service.round2Place(code, ANA, 'oracao');
+    expect(state.me.round2.placed).toEqual(['oracao']);
+    expect(s.prisma.poteRoom.findFirst).toHaveBeenCalledTimes(1);
+    expect(s.prisma.potePlayer.updateMany).toHaveBeenCalledTimes(1);
+    expect(s.prisma.poteRoom.update).toHaveBeenCalledTimes(1);
+    expect(s.prisma.potePlayer.findUnique).not.toHaveBeenCalled();
+    expect(s.prisma.potePlayer.findMany).not.toHaveBeenCalled();
+  });
+
+  it('uma ação da rodada 1 também: 1 leitura + 2 escritas', async () => {
+    const s = setup();
+    const code = await startRound1(s);
+    await s.service.tutorialDone(code, ANA);
+    clear(s);
+
+    await s.service.round1Action(code, ANA, 0, 'PASS');
+    expect(s.prisma.poteRoom.findFirst).toHaveBeenCalledTimes(1);
+    expect(s.prisma.potePlayer.updateMany).toHaveBeenCalledTimes(1);
+    expect(s.prisma.poteRoom.update).toHaveBeenCalledTimes(1);
+    expect(s.prisma.potePlayer.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('ação repetida (idempotente) não escreve nada', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await s.service.round2Place(code, ANA, 'oracao');
+    clear(s);
+    await s.service.round2Place(code, ANA, 'oracao');
+    expect(s.prisma.potePlayer.updateMany).not.toHaveBeenCalled();
+    expect(s.prisma.poteRoom.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('PoteService — rodada 2 em lote (sync)', () => {
+  async function inRound2(s: ReturnType<typeof setup>) {
+    const code = await startRound1(s);
+    await s.service.changePhase(code, ADMIN, 'RESULT_1');
+    await s.service.changePhase(code, ADMIN, 'PARABLE');
+    await s.service.changePhase(code, ADMIN, 'ROUND_2');
+    return code;
+  }
+  const placedOf = (s: ReturnType<typeof setup>) =>
+    s.db.players.find((p) => p.userId === ANA)!.round2Placed as string[];
+
+  it('vários toques viram UM pedido: tudo entra de uma vez, na ordem pedida', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    s.prisma.potePlayer.updateMany.mockClear();
+
+    const state: any = await s.service.round2Sync(code, ANA, ['oracao', 'amigos', 'reels', 'missa']);
+    expect(placedOf(s)).toEqual(['oracao', 'amigos', 'reels', 'missa']);
+    expect(state.me.round2.placed).toEqual(['oracao', 'amigos', 'reels', 'missa']);
+    expect(s.prisma.potePlayer.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('retirar cascalho/areia e adicionar outros no mesmo pedido', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await s.service.round2Sync(code, ANA, ['oracao', 'amigos', 'reels']);
+    await s.service.round2Sync(code, ANA, ['oracao', 'reels', 'role']);
+    expect(placedOf(s)).toEqual(['oracao', 'reels', 'role']);
+  });
+
+  it('pedra não sai: tirar uma pedra da lista → 409 e nada muda', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await s.service.round2Sync(code, ANA, ['oracao', 'missa']);
+    await expect(s.service.round2Sync(code, ANA, ['missa'])).rejects.toBeInstanceOf(ConflictException);
+    expect(placedOf(s)).toEqual(['oracao', 'missa']);
+  });
+
+  it('não dá para reordenar: os itens que ficam mantêm a ordem do servidor (sem forjar combo)', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await s.service.round2Sync(code, ANA, ['reels', 'oracao']);
+    await s.service.round2Sync(code, ANA, ['oracao', 'reels', 'amigos']); // tenta pôr Oração na frente
+    expect(placedOf(s)).toEqual(['reels', 'oracao', 'amigos']);
+  });
+
+  it('lista que não cabe → 409 NAO_CABE e nada é salvo', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await s.service.round2Sync(code, ANA, ['oracao']);
+    const all = ['oracao', 'missa', 'familia', 'estudos', 'sono', 'amigos']; // 5 pedras + cascalho: cabe (vãos)
+    await expect(s.service.round2Sync(code, ANA, all)).resolves.toBeDefined();
+    const tooMuch = [...all, 'role', 'futebol', 'namoro', 'violao', 'praia', 'academia', 'livro', 'ejc'];
+    const before = [...placedOf(s)];
+    await expect(s.service.round2Sync(code, ANA, tooMuch)).rejects.toThrow('NAO_CABE');
+    expect(placedOf(s)).toEqual(before);
+  });
+
+  it('item desconhecido ou repetido → 400', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await expect(s.service.round2Sync(code, ANA, ['nao_existe'])).rejects.toBeInstanceOf(BadRequestException);
+    await expect(s.service.round2Sync(code, ANA, ['reels', 'reels'])).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('a mesma lista de novo não escreve nada (idempotente)', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await s.service.round2Sync(code, ANA, ['oracao', 'reels']);
+    s.prisma.potePlayer.updateMany.mockClear();
+    await s.service.round2Sync(code, ANA, ['oracao', 'reels']);
+    expect(s.prisma.potePlayer.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('semana fechada ou sala pausada → 409', async () => {
+    const s = setup();
+    const code = await inRound2(s);
+    await s.service.setPaused(code, ADMIN, true);
+    await expect(s.service.round2Sync(code, ANA, ['reels'])).rejects.toThrow(/pausada/);
+    await s.service.setPaused(code, ADMIN, false);
+    await s.service.round2Finish(code, ANA);
+    await expect(s.service.round2Sync(code, ANA, ['reels'])).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('PoteService — lista do líder estável', () => {
+  it('a ordem dos jogadores não muda quando o banco devolve as linhas embaralhadas', async () => {
+    const s = setup();
+    const code = await newRoom(s, [ANA, BIA, OUTSIDER]);
+    await s.service.join(code, ANA);
+    await s.service.join(code, BIA);
+    const names = (state: any) => state.players.map((p: any) => p.userId);
+
+    const first: any = await s.service.getState(code, ADMIN);
+    const order = names(first);
+    expect(order).toHaveLength(3);
+
+    for (let i = 0; i < 6; i++) {
+      s.db.players.reverse(); // simula o banco devolvendo em outra ordem a cada leitura
+      s.db.players.push(s.db.players.shift()!);
+      const again: any = await s.service.getState(code, ADMIN);
+      expect(names(again)).toEqual(order);
+    }
   });
 });
 
@@ -752,7 +1010,8 @@ describe('PoteService — compromisso e estatísticas', () => {
     await s.service.saveCommitment(code, ANA, 'Rezar 10 minutos');
     expect(s.db.commitments).toHaveLength(1);
     expect(s.db.commitments[0].text).toBe('Rezar 10 minutos');
-    expect(((await s.service.getState(code, ANA)) as any).me.commitment).toBe('Rezar 10 minutos');
+    // o campo saiu da tela: o estado do jogador não carrega mais o compromisso (economiza uma consulta)
+    expect(((await s.service.getState(code, ANA)) as any).me.commitment).toBeNull();
   });
 
   it('compromisso fora da fase FINAL → 409', async () => {

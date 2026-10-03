@@ -19,6 +19,7 @@ const service: Record<string, jest.Mock> = {
   tutorialDone: jest.fn(),
   round1Action: jest.fn(),
   round2Place: jest.fn(),
+  round2Sync: jest.fn(),
   round2Remove: jest.fn(),
   round2Finish: jest.fn(),
   saveCommitment: jest.fn(),
@@ -56,6 +57,7 @@ describe('PoteController — guards', () => {
     'tutorialDone',
     'round1Action',
     'round2Place',
+    'round2Sync',
     'round2Remove',
     'round2Finish',
     'commitment',
@@ -65,6 +67,11 @@ describe('PoteController — guards', () => {
 });
 
 describe('PoteController — delegação', () => {
+  it('round2Sync manda a lista e o userId do token', () => {
+    controller.round2Sync(req, '1234', { placed: ['oracao', 'reels'] });
+    expect(service.round2Sync).toHaveBeenCalledWith('1234', 'user-1', ['oracao', 'reels']);
+  });
+
   it('usa o userId do token, nunca do body', () => {
     controller.round1Action(req, '1234', { index: 0, action: 'TAKE' });
     expect(service.round1Action).toHaveBeenCalledWith('1234', 'user-1', 0, 'TAKE');

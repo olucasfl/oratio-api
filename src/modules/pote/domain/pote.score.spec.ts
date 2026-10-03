@@ -1,4 +1,6 @@
-import { ROCK_IDS, ROUND1_SEQUENCE } from './catalog';
+import { ITEM_BY_ID, ROCK_IDS } from './catalog';
+
+const FIXED_ORDER = ['reels', 'serie', 'feed', 'videogame', 'estudos', 'fofoca', 'youtube', 'stories', 'madrugada', 'amigos', 'role', 'futebol', 'sono', 'namoro', 'violao', 'praia', 'familia', 'missa', 'oracao'];
 import { CLASSIFICATION_TEXT } from './content';
 import { canPlace, deriveJar, place, EMPTY_JAR } from './rules';
 import { classify, computeScore, sandFun } from './score';
@@ -39,7 +41,7 @@ describe('"o scroll cansa" (areia)', () => {
 describe('placar', () => {
   it('rodada 1 pegando tudo que cabe: Diversão 143, Vida 15 (com −40 de duas pedras de fora)', () => {
     let jar = EMPTY_JAR;
-    for (const item of ROUND1_SEQUENCE) {
+    for (const item of FIXED_ORDER.map((id) => ITEM_BY_ID[id])) {
       if (canPlace(jar, item.category)) jar = place(jar, item.id, item.category).state;
     }
     const s = computeScore(jar.placed, 1);

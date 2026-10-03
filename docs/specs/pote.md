@@ -82,7 +82,7 @@ R1 = posição na sequência da rodada 1 (vazio = não aparece). Vida/Diversão 
 
 **Areia (2):** `reels` Reels/TikTok 0/10 R1=1 · `serie` Série 0/10 R1=2 · `feed` Rolar o feed 0/8 R1=3 · `videogame` Videogame 0/10 R1=4 · `fofoca` Fofoca no grupo −5/8 R1=5 · `youtube` YouTube 0/8 R1=6 · `stories` Stories dos outros −3/5 R1=7 · `madrugada` Celular de madrugada −10/8 R1=8 · `joguinho` Joguinho no celular 0/6 · `meme` Meme no grupo 0/6 · `figurinha` Figurinha no zap 0/5 · `comentarios` Discutir nos comentários −5/3 · `compras` Compras online à toa −2/6 · `maratona` Maratonar série −3/12 · `cochilo` Cochilo extra 2/4
 
-**Sequência da rodada 1 (19 itens):** 1–4 areias · 5 **Estudos/Trabalho** (pedra no meio das areias) · 6–9 areias · 10–12 cascalhos · 13 **Sono** (pedra no meio dos cascalhos) · 14–16 cascalhos · 17 Família · 18 Missa · 19 Oração (as 3 últimas, Oração por último). Os ícones (Material Symbols) ficam no arquivo de catálogo.
+**Ordem da rodada 1: sorteada por jogador (2026-10-03).** São os mesmos 19 itens para todos (8 areias, 6 cascalhos, 5 pedras), mas **cada pessoa recebe uma ordem diferente, sem sequência predefinida**; só a estrutura é fixa: **2 pedras misturadas entre as areias e os cascalhos** e **as outras 3 pedras nas 3 últimas posições**. Quais pedras caem no meio e quais no final também é sorteado. A ordem é determinística por (sala, usuário) — quem reconecta recebe a mesma — e é calculada no servidor (`domain/order.ts`, sem coluna nova). O jogador só recebe o item da vez e o que já passou (`seen`), nunca o que vem depois. Pegando tudo, a pessoa fecha com 2 ou 3 pedras (nunca as 5); só quem deixa passar areia e cascalho junta as 5.
 
 ## Pontuação (função pura sobre a mesma lista ordenada)
 
@@ -226,7 +226,7 @@ Cada ação de jogador: valida fase, pausa e regras com as funções puras → p
 - [ ] "Scroll cansa": 4ª areia 100%, 5ª–8ª 50% (arredondado para baixo), 9ª+ 0; ❤ negativa não é reduzida.
 - [ ] Cada combo ativa e desativa conforme a lista muda; `deus_primeiro` exige `oracao` como 1º item.
 - [ ] Penalidade −20 ❤ por pedra de fora (só rodada 1); as 4 classificações nos limites 60/150 (59/60, 149/150).
-- [ ] Sequência da rodada 1 = exatamente a descrita acima (19 itens: 8 areias, 6 cascalhos, 5 pedras — 2 no meio, 3 no final).
+- [x] Ordem da rodada 1: permutação dos 19 itens, sempre com 2 pedras no meio e 3 no final, determinística por (sala, usuário), diferente entre pessoas (coberto em `pote.rules.spec.ts` com 300 sementes).
 
 **Acesso e convite:**
 - [ ] **Dado** usuário não-admin, **quando** `POST /oratio/pote/rooms`, **então** 403.
@@ -274,3 +274,13 @@ Loop por tarefa: `npm test -- pote` → `npm test` → `npm run build` → `npm 
 ## Fora de escopo
 
 Ranking global, histórico de partidas, avatares, sons; editor de itens (catálogo é fixo em código); push/lembrete do compromisso; física real de partículas; jogadores sem conta; convite por e-mail/WhatsApp; WebSocket/SSE (fica como evolução se o polling pesar); líder jogando.
+
+
+## Velocidade (2026-10-03)
+
+Medido pelo uso real: a confirmação de uma ação na rodada 2 chegava a ~10 s. Causas e correções:
+- **Consultas demais por ação (~10 idas seguidas ao banco).** Agora a sala vem **com todos os jogadores numa consulta só**, a ação grava o jogador e sobe a versão **em paralelo** (2 escritas simultâneas) e a resposta é montada **em memória** (sem reler nada). Poll sem novidade = 1 consulta. O `lastSeenAt` é gravado em segundo plano.
+- **Pedido por toque.** `POST /oratio/pote/rooms/:code/round2/sync { placed: string[] }` define o pote de uma vez: o cliente junta os toques (janela de 40 ms; durante um pedido em voo, os toques novos esperam e vão juntos no seguinte). O servidor valida a lista inteira (ids conhecidos e sem repetição; pedras já colocadas não saem; itens que ficam mantêm a ordem do servidor — não dá para reordenar e forjar combo; precisa caber). `place`/`remove` continuam existindo.
+- **Polling:** jogador a cada 1,5 s (líder/telão 1 s); aba em segundo plano a cada 4 s.
+- **Recomendação de infra (ação sua, `RULES.md` §1):** a `DATABASE_URL` do Render termina em `connection_limit=1`, o que faz **todas** as consultas da API (inclusive o polling de todos os jogadores) entrarem numa fila de uma conexão só. Subir para algo como `connection_limit=5` deixa o jogo bem mais folgado.
+- **Lista do líder estável:** os jogadores são ordenados por convite (desempate pelo id); antes o banco devolvia as linhas em ordem variável e a lista embaralhava a cada atualização.
