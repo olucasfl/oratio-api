@@ -45,6 +45,9 @@ model User {
   bibleCollections              BibleCollection[]
   notificationProfile           UserNotificationProfile?
   linkedAccounts                LinkedAccount[]
+  poteRoomsLed                  PoteRoom[]
+  potePlayers                   PotePlayer[]
+  poteCommitments               PoteCommitment[]
 
   // Perfil de resposta do VoxAI (chave de VOX_PROFILE_KEYS, ex.: "STUDY").
   // null = a pessoa nunca escolheu → comportamento = DEFAULT ("Padrão").
@@ -511,4 +514,96 @@ model BibleCollectionItem {
 
   @@unique([collectionId, book, chapter, verse])
   @@index([collectionId])
+}
+
+// ---------------------------------------------------------------------------
+// O Pote — dinâmica multiplayer conduzida pelo admin (spec: docs/specs/pote.md).
+// Três tabelas novas e isoladas; nada existente é alterado (as 3 linhas em
+// `User` acima são só o lado inverso das relações, sem coluna).
+// Pontuação, espaço livre e classificação NÃO são persistidos: derivam de
+// `round1Placed` / `round2Placed` pelas funções puras de `modules/pote/domain`.
+// ---------------------------------------------------------------------------
+
+enum PotePhase {
+  LOBBY
+  ROUND_1
+  RESULT_1
+  PARABLE
+  ROUND_2
+  FINAL
+  ENDED
+  CANCELLED
+}
+
+enum PoteRound1Status {
+  WAITING
+  IN_TUTORIAL
+  PLAYING
+  FINISHED
+}
+
+enum PoteRound2Status {
+  WAITING
+  PLAYING
+  FINISHED
+}
+
+// Uma sala. `code` (4 dígitos) só identifica a sala na URL — NÃO é segredo; o
+// acesso é por convite (PotePlayer). A unicidade do código entre salas ativas
+// (fora de ENDED/CANCELLED) é garantida no service, não no schema.
+// `version` sobe a cada mudança e alimenta o polling (`?since=`).
+model PoteRoom {
+  id                String           @id @default(uuid())
+  code              String           @db.VarChar(4)
+  leaderId          String
+  leader            User             @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  phase             PotePhase        @default(LOBBY)
+  isPaused          Boolean          @default(false)
+  round2EndsAt      DateTime?
+  round2RemainingMs Int?
+  version           Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  players           PotePlayer[]
+  commitments       PoteCommitment[]
+
+  @@index([code, phase])
+  @@index([leaderId])
+}
+
+// Convite + estado do jogador na sala. A linha nasce no convite (joinedAt
+// null) e `join` carimba joinedAt. Sem convite = sem linha = 403.
+model PotePlayer {
+  id           String           @id @default(uuid())
+  roomId       String
+  room         PoteRoom         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName  String
+  invitedAt    DateTime         @default(now())
+  joinedAt     DateTime?
+  lastSeenAt   DateTime?
+  statusRound1 PoteRound1Status @default(WAITING)
+  round1Index  Int              @default(0)
+  round1Placed String[]         @default([])
+  statusRound2 PoteRound2Status @default(WAITING)
+  round2Placed String[]         @default([])
+  removed      Boolean          @default(false)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+}
+
+// "Qual pedra você vai colocar primeiro nesta semana?" — um por pessoa por sala.
+model PoteCommitment {
+  id        String   @id @default(uuid())
+  roomId    String
+  room      PoteRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text      String   @db.VarChar(140)
+  createdAt DateTime @default(now())
+
+  @@unique([roomId, userId])
+  @@index([userId])
 }
