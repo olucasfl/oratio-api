@@ -37,7 +37,7 @@ describe('"o scroll cansa" (areia)', () => {
 });
 
 describe('placar', () => {
-  it('rodada 1 pegando tudo que cabe: ⚡143, ❤15 (com −40 de duas pedras de fora)', () => {
+  it('rodada 1 pegando tudo que cabe: Diversão 143, Vida 15 (com −40 de duas pedras de fora)', () => {
     let jar = EMPTY_JAR;
     for (const item of ROUND1_SEQUENCE) {
       if (canPlace(jar, item.category)) jar = place(jar, item.id, item.category).state;

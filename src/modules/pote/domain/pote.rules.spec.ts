@@ -31,30 +31,42 @@ describe('catálogo', () => {
     expect(total).toBe(100);
   });
 
-  it('a sequência da rodada 1 é exatamente a da spec (19 itens, 8/6/5)', () => {
+  it('a sequência da rodada 1 é exatamente a da spec (19 itens: 2 pedras no meio, 3 no final)', () => {
     expect(ROUND1_SEQUENCE.map((i) => i.id)).toEqual([
-      'reels', 'serie', 'feed', 'videogame', 'fofoca', 'youtube', 'stories', 'madrugada',
-      'amigos', 'role', 'futebol', 'namoro', 'violao', 'praia',
-      'estudos', 'sono', 'familia', 'missa', 'oracao',
+      'reels', 'serie', 'feed', 'videogame', 'estudos', 'fofoca', 'youtube', 'stories', 'madrugada',
+      'amigos', 'role', 'futebol', 'sono', 'namoro', 'violao', 'praia',
+      'familia', 'missa', 'oracao',
     ]);
-    expect(ROUND1_SEQUENCE.slice(0, 8).every((i) => i.category === 'AREIA')).toBe(true);
-    expect(ROUND1_SEQUENCE.slice(8, 14).every((i) => i.category === 'CASCALHO')).toBe(true);
-    expect(ROUND1_SEQUENCE.slice(14).every((i) => i.category === 'PEDRA')).toBe(true);
+    const cats = ROUND1_SEQUENCE.map((i) => i.category);
+    expect(cats.filter((c) => c === 'AREIA')).toHaveLength(8);
+    expect(cats.filter((c) => c === 'CASCALHO')).toHaveLength(6);
+    expect(cats.filter((c) => c === 'PEDRA')).toHaveLength(5);
+    // 2 pedras no meio (entre areias/cascalhos) e as 3 últimas no fim, Oração por último
+    expect(cats.slice(16)).toEqual(['PEDRA', 'PEDRA', 'PEDRA']);
+    expect(cats.slice(0, 16).filter((c) => c === 'PEDRA')).toHaveLength(2);
+    expect(ROUND1_SEQUENCE[ROUND1_SEQUENCE.length - 1].id).toBe('oracao');
   });
 });
 
 describe('regras do pote', () => {
-  it('5 pedras primeiro: ocupam 70, geram 30 de vão e deixam exatamente 60 para escolhas', () => {
+  it('5 pedras primeiro: ocupam 100, geram 40 de vão e deixam exatamente 40 para escolhas', () => {
     const jar = deriveJar(ROCK_IDS);
-    expect(jar.free).toBe(30);
-    expect(jar.gaps).toBe(30);
-    expect(spaceForChoices(jar)).toBe(60);
+    expect(jar.free).toBe(0);
+    expect(jar.gaps).toBe(40);
+    expect(spaceForChoices(jar)).toBe(40);
+  });
+
+  it('a 5ª pedra cabe exatamente (20 livres) e uma 6ª não caberia', () => {
+    const four = deriveJar(ROCK_IDS.slice(0, 4));
+    expect(four.free).toBe(20);
+    expect(canPlace(four, 'PEDRA')).toBe(true);
+    expect(canPlace(deriveJar(ROCK_IDS), 'PEDRA')).toBe(false);
   });
 
   it('uma pedra não usa vão: exige espaço livre', () => {
-    // 3 pedras = 42 usados, 18 de vão, 58 livres → ainda cabe pedra
+    // 3 pedras = 60 usados, 24 de vão, 40 livres → ainda cabe pedra
     let jar = deriveJar(['estudos', 'sono', 'familia']);
-    expect(jar.free).toBe(58);
+    expect(jar.free).toBe(40);
     jar = { ...jar, free: 10 };
     expect(canPlace(jar, 'PEDRA')).toBe(false);
     expect(() => place(jar, 'missa', 'PEDRA')).toThrow(NAO_CABE);
@@ -69,12 +81,12 @@ describe('regras do pote', () => {
   });
 
   it('cascalho usa vão primeiro e só depois o espaço livre', () => {
-    const afterRock = place(EMPTY_JAR, 'estudos', 'PEDRA').state; // gaps 6, free 86
+    const afterRock = place(EMPTY_JAR, 'estudos', 'PEDRA').state; // gaps 8, free 80
     const first = place(afterRock, 'amigos', 'CASCALHO');
     expect(first.usedGap).toBe(true);
-    expect(first.state).toMatchObject({ gaps: 1, free: 86 });
-    const second = place(first.state, 'role', 'CASCALHO');
-    expect(second.state).toMatchObject({ gaps: 0, free: 82 });
+    expect(first.state).toMatchObject({ gaps: 3, free: 80 });
+    const second = place(first.state, 'role', 'CASCALHO'); // 3 do vão + 2 do livre
+    expect(second.state).toMatchObject({ gaps: 0, free: 78 });
   });
 
   it('sem vão, nada usa vão (usedGap = false)', () => {
@@ -89,7 +101,7 @@ describe('regras do pote', () => {
     expect(full.free).toBe(1);
   });
 
-  it('rodada 1 pegando tudo que cabe: 46 gastos, 3 pedras entram e 2 ficam de fora', () => {
+  it('rodada 1 pegando tudo que cabe: 3 pedras entram e 2 ficam de fora (Missa e Oração)', () => {
     let jar = EMPTY_JAR;
     const left: string[] = [];
     for (const item of ROUND1_SEQUENCE) {
@@ -99,16 +111,34 @@ describe('regras do pote', () => {
         left.push(item.id);
       }
     }
-    expect(CAPACITY - jar.free).toBe(46 + 42);
     expect(left).toEqual(['missa', 'oracao']);
     expect(jar.placed.filter((id) => ROCK_IDS.includes(id))).toEqual([
       'estudos', 'sono', 'familia',
     ]);
+    // sobram só 10 livres: nem a Missa (20) nem a Oração (20) cabem
+    expect(jar.free).toBe(10);
+    expect(CAPACITY - jar.free).toBe(90);
   });
 
-  it('antes das pedras, 8 areias + 6 cascalhos gastam 46 e sobram 54', () => {
-    const placed = ROUND1_SEQUENCE.slice(0, 14).map((i) => i.id);
-    expect(deriveJar(placed).free).toBe(54);
+  it('sem pedras no pote, 8 areias + 6 cascalhos gastam 46 e sobram 54 (cabem 2 pedras)', () => {
+    const placed = ROUND1_SEQUENCE.filter((i) => i.category !== 'PEDRA').map((i) => i.id);
+    const jar = deriveJar(placed);
+    expect(jar.free).toBe(54);
+    expect(Math.floor(jar.free / 20)).toBe(2);
+  });
+
+  it('quem ignora só as areias ainda perde uma pedra; só quem deixa passar areia E cascalho junta as 5', () => {
+    const play = (take: (c: string) => boolean) => {
+      let jar = EMPTY_JAR;
+      for (const item of ROUND1_SEQUENCE) {
+        if (take(item.category) && canPlace(jar, item.category)) {
+          jar = place(jar, item.id, item.category).state;
+        }
+      }
+      return jar.placed.filter((id) => ROCK_IDS.includes(id)).length;
+    };
+    expect(play((c) => c !== 'AREIA')).toBe(4);
+    expect(play((c) => c === 'PEDRA')).toBe(5);
   });
 
   it('deriveJar recalcula do zero e rejeita listas impossíveis ou ids desconhecidos', () => {
