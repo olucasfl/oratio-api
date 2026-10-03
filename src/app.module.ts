@@ -19,6 +19,7 @@ import { NotificationsModule } from './modules/oratio/notifications/notification
 import { QuaresmaModule } from './modules/oratio/quaresma/quaresma.module';
 import { BibleMarksModule } from './modules/oratio/bible-marks/bible-marks.module';
 import { BibleCollectionsModule } from './modules/oratio/bible-collections/bible-collections.module';
+import { PoteModule } from './modules/pote/pote.module';
 import { SystemLogModule } from './system-log/system-log.module';
 
 @Module({
@@ -41,6 +42,7 @@ import { SystemLogModule } from './system-log/system-log.module';
     QuaresmaModule,
     BibleMarksModule,
     BibleCollectionsModule,
+    PoteModule,
     SystemLogModule,
   ],
   controllers: [AppController],
