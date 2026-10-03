@@ -4,7 +4,6 @@
 
 import {
   CAPACITY,
-  ROCK_IDS,
   ROUND1_LENGTH,
   ROUND1_SEQUENCE,
   ROCK_MISSING_PENALTY,
@@ -107,7 +106,6 @@ export function buildPlayerView(
       free: jar2.free,
       gaps: jar2.gaps,
       spaceLeft: spaceForChoices(jar2),
-      unlocked: score2.rocksIn === ROCK_IDS.length,
       fun: score2.fun,
       life: score2.life,
       combos: score2.combos,

@@ -14,9 +14,6 @@ export const TUTORIAL_BUTTON = 'Entendi, começar';
 export const SAND_TIRED_MESSAGE = 'Você já nem tá curtindo mais…';
 export const JAR_FULL_MESSAGE = 'Pote cheio. Para colocar algo, tire outra coisa.';
 export const PAUSED_MESSAGE = 'Pausado pelo líder';
-export const COMMITMENT_LABEL = 'Qual pedra você vai colocar primeiro nesta semana?';
-export const COMMITMENT_PLACEHOLDER =
-  'Ex.: 10 minutos de oração antes de pegar o celular';
 
 export const PARABLE = {
   title: 'O pote do professor',
